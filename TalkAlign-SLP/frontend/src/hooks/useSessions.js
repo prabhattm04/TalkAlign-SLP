@@ -1,61 +1,52 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useData } from '../context/DataContext.jsx';
+import { useState, useEffect } from 'react';
 import * as sessionsApi from '../api/sessions.js';
 
-export function useSessions(patientId = null) {
-  const [sessions, setSessions] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+export function useSessions() {
+  const { 
+    sessions, loadingSessions, fetchSessions, 
+    createSession, updateSession, saveSOAP 
+  } = useData();
 
-  const fetchSessions = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = patientId
-        ? await sessionsApi.getSessionsByPatient(patientId)
-        : await sessionsApi.getSessions();
-      setSessions(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+  return {
+    sessions,
+    loading: loadingSessions,
+    error: null,
+    refetch: fetchSessions,
+    createSession,
+    updateSession,
+    saveSOAP,
+    assignHomePractice: async (sessionId, tasks) => {
+      // Passthrough to API, then refetch if needed or just return
+      const res = await sessionsApi.assignHomePractice(sessionId, tasks);
+      fetchSessions(); // re-sync after tasks are assigned since they might be joined
+      return res;
     }
-  }, [patientId]);
-
-  useEffect(() => { fetchSessions(); }, [fetchSessions]);
-
-  return { sessions, loading, error, refetch: fetchSessions };
+  };
 }
 
 export function useSession(id) {
+  const { sessions, loadingSessions } = useData();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (!id) return;
+
+    // First try to find in context
+    const found = sessions.find(s => s.id === id);
+    if (found) {
+      setSession(found);
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     sessionsApi.getSession(id)
       .then((data) => { setSession(data); setLoading(false); })
       .catch((err) => { setError(err.message); setLoading(false); });
-  }, [id]);
+  }, [id, sessions]);
 
-  async function saveSOAP(soap) {
-    setSaving(true);
-    try {
-      const updated = await sessionsApi.saveSOAP(id, soap);
-      setSession(updated);
-      return updated;
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function updateSession(data) {
-    const updated = await sessionsApi.updateSession(id, data);
-    setSession(updated);
-    return updated;
-  }
-
-  return { session, loading, error, saving, saveSOAP, updateSession };
+  return { session, loading: loading || loadingSessions, error };
 }

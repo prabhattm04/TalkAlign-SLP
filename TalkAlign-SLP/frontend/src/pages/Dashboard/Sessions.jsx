@@ -32,7 +32,7 @@ export default function Sessions() {
       ) : (
         <div className="card divide-y divide-slate-100 overflow-hidden">
           {sorted.map((s) => {
-            const patient = getPatient(s.patientId);
+            const patient = getPatient(s.patient_id);
             return (
               <div key={s.id} className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50 transition-colors group">
                 <div className="w-11 h-11 rounded-2xl bg-brand-50 flex items-center justify-center flex-shrink-0">

@@ -25,16 +25,21 @@ function StatCard({ icon: Icon, label, value, delta, color, bg }) {
   );
 }
 
-function ActivityChart() {
-  const data = [
-    { day: 'Mon', count: 3, h: '30%' },
-    { day: 'Tue', count: 5, h: '50%' },
-    { day: 'Wed', count: 2, h: '20%' },
-    { day: 'Thu', count: 8, h: '80%' },
-    { day: 'Fri', count: 6, h: '60%' },
-    { day: 'Sat', count: 0, h: '5%' },
-    { day: 'Sun', count: 1, h: '10%' },
-  ];
+function ActivityChart({ sessions }) {
+  // Compute real activity for the last 7 days
+  const today = new Date();
+  const data = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - (6 - i));
+    const dayStr = d.toLocaleDateString('en-US', { weekday: 'short' });
+    const dateStr = d.toISOString().split('T')[0];
+    
+    const count = sessions.filter(s => s.status === 'completed' && s.date.startsWith(dateStr)).length;
+    return { day: dayStr, count };
+  });
+
+  const maxCount = Math.max(...data.map(d => d.count), 1); // Avoid div by 0
+
   return (
     <div className="card p-6 flex flex-col justify-between h-full">
       <div>
@@ -42,12 +47,14 @@ function ActivityChart() {
         <p className="text-sm text-slate-500 mb-6">Sessions completed this week</p>
       </div>
       <div className="flex items-end justify-between gap-3 h-32 mt-auto">
-        {data.map((d) => (
-          <div key={d.day} className="flex flex-col items-center gap-2 flex-1 group h-full justify-end">
+        {data.map((d, idx) => {
+          const h = `${(d.count / maxCount) * 100}%`;
+          return (
+          <div key={idx} className="flex flex-col items-center gap-2 flex-1 group h-full justify-end">
             <div className="w-full bg-slate-50 rounded-t-lg relative flex flex-col justify-end transition-colors h-full">
                <div 
                  className="w-full bg-brand-500 rounded-t-lg transition-all duration-500 group-hover:bg-brand-600"
-                 style={{ height: d.h }}
+                 style={{ height: d.count > 0 ? Math.max((d.count / maxCount) * 100, 10) + '%' : '0%' }}
                />
                <span className="absolute -top-7 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">
                  {d.count}
@@ -55,7 +62,7 @@ function ActivityChart() {
             </div>
             <span className="text-xs text-slate-400 font-medium">{d.day}</span>
           </div>
-        ))}
+        )})}
       </div>
     </div>
   );
@@ -68,7 +75,7 @@ export default function DashboardHome() {
 
   const activePts  = patients.filter((p) => p.status === 'active').length;
   const recentSess = [...sessions]
-    .filter((s) => s.status === 'completed' || s.status === 'in-progress')
+    .filter((s) => s.status === 'completed' || s.status === 'in_progress')
     .sort((a, b) => new Date(b.date) - new Date(a.date))
     .slice(0, 5);
 
@@ -125,7 +132,7 @@ export default function DashboardHome() {
       <div className="grid lg:grid-cols-5 gap-5">
         {/* LEFT COLUMN (col-span-3) */}
         <div className="lg:col-span-3 space-y-5">
-          <ActivityChart />
+          <ActivityChart sessions={sessions} />
 
           <div className="card">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
@@ -141,7 +148,7 @@ export default function DashboardHome() {
                 <div className="text-slate-400 text-sm text-center py-8">No sessions yet.</div>
               ) : (
                 recentSess.map((s) => {
-                  const patient = patients.find((p) => p.id === s.patientId);
+                  const patient = patients.find((p) => p.id === s.patient_id);
                   return (
                     <div key={s.id} className="flex items-center gap-4 p-3 rounded-xl hover:bg-slate-50 transition-colors">
                       <div className="w-9 h-9 rounded-full gradient-brand flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
@@ -176,7 +183,7 @@ export default function DashboardHome() {
                 <div className="text-slate-400 text-sm text-center py-4">No upcoming sessions.</div>
               ) : (
                 upcomingSess.map((s) => {
-                  const patient = patients.find((p) => p.id === s.patientId);
+                  const patient = patients.find((p) => p.id === s.patient_id);
                   return (
                     <div key={s.id} className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 border border-slate-100">
                       <div className="w-10 h-10 rounded-full bg-teal-100 flex items-center justify-center text-teal-700 font-bold flex-shrink-0">
@@ -208,6 +215,8 @@ export default function DashboardHome() {
             <div className="p-4 space-y-2">
               {pLoading ? (
                 <div className="text-slate-400 text-sm text-center py-8">Loading…</div>
+              ) : patients.length === 0 ? (
+                <div className="text-slate-400 text-sm text-center py-4">No patients yet.</div>
               ) : (
                 patients.slice(0, 5).map((p) => (
                   <Link

@@ -1,50 +1,59 @@
-// Patients API stub — replace with real HTTP calls when backend is ready
-import { mockPatients } from '../data/mockPatients.js';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
 
-const FAKE_DELAY = 600;
-const fakeDelay = (ms = FAKE_DELAY) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-// Mutable in-memory store
-let patients = [...mockPatients];
-
-/** getPatients() → Patient[] */
-export async function getPatients() {
-  await fakeDelay();
-  return [...patients];
+function getToken() {
+  try {
+    const stored = localStorage.getItem('talkalign_auth');
+    if (stored) {
+      return JSON.parse(stored).token;
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
 }
 
-/** getPatient(id) → Patient */
-export async function getPatient(id) {
-  await fakeDelay();
-  const p = patients.find((p) => p.id === id);
-  if (!p) throw new Error(`Patient ${id} not found.`);
-  return { ...p };
-}
-
-/** addPatient(data) → Patient */
-export async function addPatient(data) {
-  await fakeDelay();
-  const newPatient = {
-    id: `p${Date.now()}`,
-    totalSessions: 0,
-    status: 'active',
-    lastSession: null,
-    ...data,
+async function fetchWithAuth(endpoint, options = {}) {
+  const token = getToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options.headers,
   };
-  patients.push(newPatient);
-  return { ...newPatient };
+
+  const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+  const json = await res.json();
+
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message || 'Request failed');
+  }
+
+  return json.data;
 }
 
-/** updatePatient(id, data) → Patient */
+export async function getPatients() {
+  return fetchWithAuth('/patients');
+}
+
+export async function getPatient(id) {
+  return fetchWithAuth(`/patients/${id}`);
+}
+
+export async function addPatient(data) {
+  return fetchWithAuth('/patients', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export async function updatePatient(id, data) {
-  await fakeDelay();
-  patients = patients.map((p) => (p.id === id ? { ...p, ...data } : p));
-  return patients.find((p) => p.id === id);
+  return fetchWithAuth(`/patients/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
 }
 
-/** deletePatient(id) → void */
 export async function deletePatient(id) {
-  await fakeDelay();
-  patients = patients.filter((p) => p.id !== id);
+  return fetchWithAuth(`/patients/${id}`, {
+    method: 'DELETE',
+  });
 }

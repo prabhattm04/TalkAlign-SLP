@@ -1,58 +1,47 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useData } from '../context/DataContext.jsx';
+import { useState, useEffect } from 'react';
 import * as patientsApi from '../api/patients.js';
 
 export function usePatients() {
-  const [patients, setPatients] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { 
+    patients, loadingPatients, fetchPatients, 
+    addPatient, updatePatient, deletePatient 
+  } = useData();
 
-  const fetchPatients = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await patientsApi.getPatients();
-      setPatients(data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetchPatients(); }, [fetchPatients]);
-
-  async function addPatient(data) {
-    const newPatient = await patientsApi.addPatient(data);
-    setPatients((prev) => [...prev, newPatient]);
-    return newPatient;
-  }
-
-  async function updatePatient(id, data) {
-    const updated = await patientsApi.updatePatient(id, data);
-    setPatients((prev) => prev.map((p) => (p.id === id ? updated : p)));
-    return updated;
-  }
-
-  async function deletePatient(id) {
-    await patientsApi.deletePatient(id);
-    setPatients((prev) => prev.filter((p) => p.id !== id));
-  }
-
-  return { patients, loading, error, refetch: fetchPatients, addPatient, updatePatient, deletePatient };
+  return {
+    patients,
+    loading: loadingPatients,
+    error: null,
+    refetch: fetchPatients,
+    addPatient,
+    updatePatient,
+    deletePatient
+  };
 }
 
 export function usePatient(id) {
+  const { patients, loadingPatients } = useData();
   const [patient, setPatient] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     if (!id) return;
+    
+    // First try to find in context to avoid unnecessary fetch
+    const found = patients.find(p => p.id === id);
+    if (found) {
+      setPatient(found);
+      setLoading(false);
+      return;
+    }
+
+    // Fallback to fetch if not in context
     setLoading(true);
     patientsApi.getPatient(id)
       .then((data) => { setPatient(data); setLoading(false); })
       .catch((err) => { setError(err.message); setLoading(false); });
-  }, [id]);
+  }, [id, patients]);
 
-  return { patient, loading, error };
+  return { patient, loading: loading || loadingPatients, error };
 }

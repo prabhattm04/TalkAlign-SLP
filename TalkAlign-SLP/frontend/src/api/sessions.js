@@ -1,56 +1,71 @@
-// Sessions API stub — replace with real HTTP calls when backend is ready
-import { mockSessions } from '../data/mockSessions.js';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
 
-const FAKE_DELAY = 600;
-const fakeDelay = (ms = FAKE_DELAY) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-// Mutable in-memory store
-let sessions = [...mockSessions];
-
-/** getSessions() → Session[] */
-export async function getSessions() {
-  await fakeDelay();
-  return [...sessions];
+function getToken() {
+  try {
+    const stored = localStorage.getItem('talkalign_auth');
+    if (stored) {
+      return JSON.parse(stored).token;
+    }
+  } catch (e) {
+    return null;
+  }
+  return null;
 }
 
-/** getSessionsByPatient(patientId) → Session[] */
-export async function getSessionsByPatient(patientId) {
-  await fakeDelay();
-  return sessions.filter((s) => s.patientId === patientId);
-}
-
-/** getSession(id) → Session */
-export async function getSession(id) {
-  await fakeDelay();
-  const s = sessions.find((s) => s.id === id);
-  if (!s) throw new Error(`Session ${id} not found.`);
-  return { ...s };
-}
-
-/** createSession(data) → Session */
-export async function createSession(data) {
-  await fakeDelay();
-  const newSession = {
-    id: `s${Date.now()}`,
-    date: new Date().toISOString().split('T')[0],
-    status: 'in-progress',
-    soap: { subjective: '', objective: '', assessment: '', plan: '' },
-    ...data,
+async function fetchWithAuth(endpoint, options = {}) {
+  const token = getToken();
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    ...options.headers,
   };
-  sessions.push(newSession);
-  return { ...newSession };
+
+  const res = await fetch(`${API_URL}${endpoint}`, { ...options, headers });
+  const json = await res.json();
+
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message || 'Request failed');
+  }
+
+  return json.data;
 }
 
-/** updateSession(id, data) → Session */
+export async function getSessions() {
+  return fetchWithAuth('/sessions');
+}
+
+export async function getSessionsByPatient(patientId) {
+  return fetchWithAuth(`/sessions?patientId=${patientId}`);
+}
+
+export async function getSession(id) {
+  return fetchWithAuth(`/sessions/${id}`);
+}
+
+export async function createSession(data) {
+  return fetchWithAuth('/sessions', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
 export async function updateSession(id, data) {
-  await fakeDelay();
-  sessions = sessions.map((s) => (s.id === id ? { ...s, ...data } : s));
-  return sessions.find((s) => s.id === id);
+  return fetchWithAuth(`/sessions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
 }
 
-/** saveSOAP(sessionId, soap) → Session */
 export async function saveSOAP(sessionId, soap) {
-  await fakeDelay();
-  return updateSession(sessionId, { soap, status: 'completed' });
+  return fetchWithAuth(`/sessions/${sessionId}/soap`, {
+    method: 'POST',
+    body: JSON.stringify({ soap }),
+  });
+}
+
+export async function assignHomePractice(sessionId, tasks) {
+  return fetchWithAuth(`/sessions/${sessionId}/home-practice`, {
+    method: 'POST',
+    body: JSON.stringify({ tasks }),
+  });
 }

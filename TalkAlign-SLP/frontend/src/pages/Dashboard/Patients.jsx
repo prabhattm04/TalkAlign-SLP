@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Search, UserRound, ChevronRight, X } from 'lucide-react';
 import { usePatients } from '../../hooks/usePatients.js';
+import { useSessions } from '../../hooks/useSessions.js';
 import { formatDate } from '../../utils/helpers.js';
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
@@ -10,6 +11,8 @@ import Badge from '../../components/ui/Badge.jsx';
 const INTEREST_TAGS = ['Dinosaurs', 'Space', 'Cars', 'Animals', 'Art', 'Music', 'Sports', 'Video Games'];
 
 function AddPatientModal({ onClose, onAdd }) {
+// ... leaving the rest of AddPatientModal unchanged, jumping to Patients component
+
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ 
     name: '', age: '', gender: '', caregiver: '', 
@@ -115,9 +118,25 @@ function AddPatientModal({ onClose, onAdd }) {
           {step === 3 && (
             <div className="space-y-4 animate-fade-in">
               <h4 className="font-semibold text-slate-900">Interests & Hobbies</h4>
-              <p className="text-sm text-slate-500">Select topics to help build rapport during therapy sessions.</p>
-              <div className="flex flex-wrap gap-2">
-                {INTEREST_TAGS.map(tag => (
+              <p className="text-sm text-slate-500">Select topics to help build rapport during therapy sessions, or type your own.</p>
+              
+              <Input 
+                id="custom-tag" 
+                placeholder="Type a custom interest and press Enter…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const val = e.target.value.trim();
+                    if (val && !form.tags.includes(val)) {
+                      setForm(f => ({ ...f, tags: [...f.tags, val] }));
+                    }
+                    e.target.value = '';
+                  }
+                }}
+              />
+
+              <div className="flex flex-wrap gap-2 mt-2">
+                {Array.from(new Set([...INTEREST_TAGS, ...form.tags])).map(tag => (
                   <button
                     key={tag}
                     type="button"
@@ -153,6 +172,7 @@ function AddPatientModal({ onClose, onAdd }) {
 
 export default function Patients() {
   const { patients, loading, addPatient } = usePatients();
+  const { sessions } = useSessions();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
@@ -167,6 +187,14 @@ export default function Patients() {
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  const getPatientStats = (patientId) => {
+    const pSess = sessions.filter(s => s.patient_id === patientId);
+    const totalSessions = pSess.length;
+    const completedSess = pSess.filter(s => s.status === 'completed').sort((a, b) => new Date(b.date) - new Date(a.date));
+    const lastSession = completedSess.length > 0 ? completedSess[0].date : null;
+    return { totalSessions, lastSession };
+  };
 
   return (
     <div className="space-y-6 page-enter">
@@ -231,7 +259,9 @@ export default function Patients() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {paginated.map((p) => (
+                {paginated.map((p) => {
+                  const { totalSessions, lastSession } = getPatientStats(p.id);
+                  return (
                   <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
@@ -240,13 +270,13 @@ export default function Patients() {
                         </div>
                         <div>
                           <p className="font-semibold text-slate-900">{p.name}</p>
-                          <p className="text-xs text-slate-400">{p.totalSessions} sessions total</p>
+                          <p className="text-xs text-slate-400">{totalSessions || 0} sessions total</p>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4 text-sm text-slate-700">{p.age} yrs</td>
                     <td className="px-6 py-4 text-sm text-slate-700">{p.condition}</td>
-                    <td className="px-6 py-4 text-sm text-slate-500">{p.lastSession ? formatDate(p.lastSession) : '—'}</td>
+                    <td className="px-6 py-4 text-sm text-slate-500">{lastSession ? formatDate(lastSession) : '—'}</td>
                     <td className="px-6 py-4"><Badge status={p.status}>{p.status}</Badge></td>
                     <td className="px-6 py-4">
                       <Link to={`/dashboard/patients/${p.id}`}>
@@ -256,14 +286,16 @@ export default function Patients() {
                       </Link>
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
           </div>
 
           {/* Mobile cards */}
           <div className="md:hidden divide-y divide-slate-100">
-            {paginated.map((p) => (
+            {paginated.map((p) => {
+              const { lastSession } = getPatientStats(p.id);
+              return (
               <Link key={p.id} to={`/dashboard/patients/${p.id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 transition-colors">
                 <div className="w-11 h-11 rounded-full bg-brand-500 flex items-center justify-center text-white font-bold flex-shrink-0">
                   {p.name.charAt(0)}
@@ -271,14 +303,14 @@ export default function Patients() {
                 <div className="flex-1 min-w-0">
                   <p className="font-semibold text-slate-900">{p.name}</p>
                   <p className="text-xs text-slate-500">{p.condition} · Age {p.age}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{p.lastSession ? formatDate(p.lastSession) : 'No sessions'}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{lastSession ? formatDate(lastSession) : 'No sessions'}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
                   <Badge status={p.status}>{p.status}</Badge>
                   <ChevronRight className="w-4 h-4 text-slate-400" />
                 </div>
               </Link>
-            ))}
+            )})}
           </div>
 
           {/* Pagination */}

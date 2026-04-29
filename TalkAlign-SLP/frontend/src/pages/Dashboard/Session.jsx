@@ -62,7 +62,7 @@ export default function Session() {
   const isNew = id === 'new';
 
   const { session, loading: sLoad, saving, saveSOAP } = useSession(isNew ? null : id);
-  const { patient: sessionPatient } = usePatient(isNew ? patientId : session?.patientId);
+  const { patient: sessionPatient } = usePatient(isNew ? patientId : session?.patient_id);
   const { goals } = useGoals(sessionPatient?.id);
 
   // STATE MACHINE

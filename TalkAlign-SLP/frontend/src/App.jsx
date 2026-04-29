@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext.jsx';
+import { DataProvider } from './context/DataContext.jsx';
 import ProtectedRoute from './routes/ProtectedRoute.jsx';
 import DashboardLayout from './components/layout/DashboardLayout.jsx';
 
@@ -31,9 +32,10 @@ import SupervisorSchedule from './pages/Supervisor/Schedule.jsx';
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          {/* Public */}
+      <DataProvider>
+        <BrowserRouter>
+          <Routes>
+            {/* Public */}
           <Route path="/"         element={<Landing />} />
           <Route path="/login"    element={<Login />} />
           <Route path="/register" element={<Register />} />
@@ -88,7 +90,8 @@ export default function App() {
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
-      </BrowserRouter>
+        </BrowserRouter>
+      </DataProvider>
     </AuthProvider>
   );
 }

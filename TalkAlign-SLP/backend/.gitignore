@@ -1,0 +1,25 @@
+# Environment — never commit real secrets
+.env
+.env.local
+.env.*.local
+
+# Build output
+dist/
+build/
+
+# Dependencies
+node_modules/
+
+# TypeScript
+*.tsbuildinfo
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
