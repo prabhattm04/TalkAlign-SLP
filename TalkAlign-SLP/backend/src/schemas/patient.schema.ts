@@ -9,7 +9,8 @@ export const createPatientSchema = z.object({
   tags: z.array(z.string()).default([]),
   caregiver_id: z.string().uuid().nullable().optional(),
   caregiver_name: z.string().optional(),
-  caregiver_phone: z.string().optional()
+  caregiver_phone: z.string().min(1, "Phone number is required").regex(/^[\d\s\-\+\(\)]+$/, "Invalid phone number format"),
+  caregiver_email: z.string().email("Invalid email")
 });
 
 export const updatePatientSchema = z.object({
@@ -22,7 +23,8 @@ export const updatePatientSchema = z.object({
   tags: z.array(z.string()).optional(),
   caregiver_id: z.string().uuid().nullable().optional(),
   caregiver_name: z.string().optional(),
-  caregiver_phone: z.string().optional()
+  caregiver_phone: z.string().regex(/^[\d\s\-\+\(\)]+$/, "Invalid phone number format").optional(),
+  caregiver_email: z.string().email("Invalid email").optional()
 });
 
 export type CreatePatientInput = z.infer<typeof createPatientSchema>;

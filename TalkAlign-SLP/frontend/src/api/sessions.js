@@ -70,6 +70,19 @@ export async function assignHomePractice(sessionId, tasks) {
   });
 }
 
+export async function endSession(sessionId, data) {
+  return fetchWithAuth(`/sessions/${sessionId}/end`, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+export async function deleteSession(sessionId) {
+  return fetchWithAuth(`/sessions/${sessionId}`, {
+    method: 'DELETE'
+  });
+}
+
 // Multipart upload — do NOT use fetchWithAuth (it adds Content-Type: application/json)
 export async function uploadAudio(sessionId, formData) {
   const token = getToken();

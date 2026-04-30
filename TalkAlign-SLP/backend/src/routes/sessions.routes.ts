@@ -7,9 +7,11 @@ import {
   createSession,
   saveSoap,
   assignTasks,
+  endSession,
+  deleteSession
 } from "../controllers/sessions.controller";
 import { uploadAudioHandler } from "../controllers/audio.controller";
-import { createSessionSchema, saveSoapSchema, assignTasksSchema } from "../schemas/session.schema";
+import { createSessionSchema, saveSoapSchema, assignTasksSchema, endSessionSchema } from "../schemas/session.schema";
 import { audioUpload } from "../config/multer";
 
 const router = Router();
@@ -22,6 +24,8 @@ router.get("/:id", getSession);
 router.post("/", validate(createSessionSchema, "body"), createSession);
 router.post("/:id/soap", validate(saveSoapSchema, "body"), saveSoap);
 router.post("/:id/home-practice", validate(assignTasksSchema, "body"), assignTasks);
+router.post("/:id/end", validate(endSessionSchema, "body"), endSession);
 router.post("/:id/audio", audioUpload.single("audio"), uploadAudioHandler);
+router.delete("/:id", deleteSession);
 
 export default router;

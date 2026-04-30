@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { useParams, useSearchParams, Link } from 'react-router-dom';
+import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Mic, Square, CheckCircle2,
   Wand2, FileText, Lock, UploadCloud, MessageSquare, PlayCircle, Target,
@@ -59,9 +59,10 @@ export default function Session() {
   const [searchParams] = useSearchParams();
   const patientId = searchParams.get('patientId');
   const isNew = id === 'new';
+  const navigate = useNavigate();
 
   const { session } = useSession(isNew ? null : id);
-  const { saveSOAP, createSession: createNewSession, assignHomePractice, refetch: refetchSessions } = useSessions();
+  const { saveSOAP, createSession: createNewSession, assignHomePractice, endSession: endSessionApi, deleteSession, refetch: refetchSessions } = useSessions();
   const { patient: sessionPatient } = usePatient(isNew ? patientId : session?.patient_id);
   const { goals } = useGoals(sessionPatient?.id);
 
@@ -69,6 +70,7 @@ export default function Session() {
   // idle → choose → recording → uploading → transcribing → draft → finalized
   const [status, setStatus]           = useState(isNew ? 'idle' : 'loading');
   const [elapsed, setElapsed]         = useState(0);
+  const [isSessionPaused, setIsSessionPaused] = useState(false);
   const [isPaused, setIsPaused]       = useState(false);
   const [soap, setSoap]               = useState({ subjective: '', objective: '', assessment: '', plan: '' });
   const [rawTranscript, setRawTranscript] = useState('');
@@ -124,15 +126,17 @@ export default function Session() {
     setParentSummary(s.ai_parent_summary || '');
   }
 
-  // ── Recording timer (pauses when isPaused) ────────────────────────────────
+  // ── Session timer (runs while session is active) ────────────────────────────────
   useEffect(() => {
-    if (status === 'recording' && !isPaused) {
+    // Run timer if session is active and not completed/draft
+    const isActive = ['choose', 'recording', 'uploading', 'transcribing', 'generating'].includes(status);
+    if (isActive && !isSessionPaused) {
       timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
     } else {
       clearInterval(timerRef.current);
     }
     return () => clearInterval(timerRef.current);
-  }, [status, isPaused]);
+  }, [status, isSessionPaused]);
 
   // ── Cleanup polling on unmount ────────────────────────────────────────────
   useEffect(() => {
@@ -315,9 +319,56 @@ export default function Session() {
     setTimeout(() => setSaved(false), 3000);
   }
 
-  function handleFinalize() {
+  async function handleFinalize() {
     setStatus('finalized');
-    handleSave();
+    await handleSave();
+  }
+
+  async function handleEndSession() {
+    const sessionId = isNew ? activeSession?.id : session?.id;
+    if (!sessionId) return;
+    setIsSessionPaused(true); // Stop timer
+    try {
+      await endSessionApi(sessionId, {
+        end_time: new Date().toISOString(),
+        duration: Math.ceil(elapsed / 60) || 1
+      });
+      setStatus('finalized');
+      handleSave();
+    } catch (err) {
+      setIsSessionPaused(false);
+      setUploadError(err.message || 'Failed to end session');
+    }
+  }
+
+  function handlePauseSession() {
+    setIsSessionPaused(true);
+    if (status === 'recording' && !isPaused) {
+      handlePauseRecording();
+    }
+  }
+
+  function handleResumeSession() {
+    setIsSessionPaused(false);
+    if (status === 'recording' && isPaused) {
+      handleResumeRecording();
+    }
+  }
+
+  async function handleCancelSession() {
+    if (window.confirm("Are you sure you want to cancel this session? It will be deleted permanently.")) {
+      const sessionId = isNew ? activeSession?.id : session?.id;
+      if (sessionId) {
+        try {
+          await deleteSession(sessionId);
+        } catch (err) {
+          console.error(err);
+          setUploadError(err.message || 'Failed to cancel session');
+          return;
+        }
+      }
+      navigate(displayPatient ? `/dashboard/patients/${displayPatient.id}` : '/dashboard/sessions');
+    }
   }
 
   // ── Home practice ─────────────────────────────────────────────────────────
@@ -396,42 +447,41 @@ export default function Session() {
         </div>
 
         <div className="flex items-center gap-3">
-          {(status === 'idle' || status === 'loading') && (
-            <Button variant="primary" size="md" onClick={handleStartSession}>
-              <Mic className="w-4 h-4" /> Start Session
-            </Button>
-          )}
-
-          {status === 'choose' && (
-            <div className="flex items-center gap-3">
-              <Button variant="secondary" size="md" onClick={() => handleChooseMode('upload')}>
-                <UploadCloud className="w-4 h-4" /> Upload Audio
-              </Button>
-              <Button variant="primary" size="md" onClick={() => handleChooseMode('record')}>
-                <Mic className="w-4 h-4" /> Record Audio
-              </Button>
+          {/* Display Session Timer if active */}
+          {['choose', 'recording', 'uploading', 'transcribing', 'generating', 'draft'].includes(status) && (
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold border ${isSessionPaused ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200'} mr-2`}>
+              <div className={`w-2.5 h-2.5 rounded-full ${isSessionPaused ? 'bg-amber-500' : 'bg-green-500'}`} />
+              {isSessionPaused ? 'Paused' : formatTime(elapsed)}
             </div>
           )}
 
-          {status === 'recording' && (
-            <div className="flex items-center gap-4">
-              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold ${isPaused ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700 animate-pulse'}`}>
-                <div className={`w-2.5 h-2.5 rounded-full ${isPaused ? 'bg-amber-500' : 'bg-red-500'}`} />
-                {isPaused ? 'Paused' : formatTime(elapsed)}
-              </div>
-              {isPaused ? (
-                <Button variant="secondary" size="md" onClick={handleResumeRecording}>
+          {['choose', 'recording'].includes(status) && (
+            <>
+              {isSessionPaused ? (
+                <Button variant="secondary" size="md" onClick={handleResumeSession}>
                   <Play className="w-4 h-4" /> Resume
                 </Button>
               ) : (
-                <Button variant="ghost" size="md" onClick={handlePauseRecording}>
+                <Button variant="ghost" size="md" onClick={handlePauseSession}>
                   <Pause className="w-4 h-4" /> Pause
                 </Button>
               )}
-              <Button variant="danger" size="md" onClick={handleStopRecording}>
-                <Square className="w-4 h-4 fill-current" /> Stop & Process
+              <Button variant="ghost" size="md" onClick={handleCancelSession} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+                Cancel
               </Button>
-            </div>
+            </>
+          )}
+
+          {status === 'choose' && (
+            <Button variant="danger" size="md" onClick={handleEndSession}>
+              <Square className="w-4 h-4" /> End Session
+            </Button>
+          )}
+
+          {status === 'recording' && (
+            <Button variant="danger" size="md" onClick={handleStopRecording}>
+              <Square className="w-4 h-4 fill-current" /> Stop & Process
+            </Button>
           )}
 
           {isEditing && (
@@ -442,8 +492,8 @@ export default function Session() {
                 </span>
               )}
               <Button variant="secondary" size="md" onClick={handleSave}>Save Draft</Button>
-              <Button variant="primary" size="md" onClick={handleFinalize}>
-                <Lock className="w-4 h-4" /> Finalize Notes
+              <Button variant="primary" size="md" onClick={handleEndSession}>
+                <Lock className="w-4 h-4" /> End Session & Finalize
               </Button>
             </>
           )}

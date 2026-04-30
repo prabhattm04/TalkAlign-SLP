@@ -22,13 +22,6 @@ import PortalSessionDetail from './pages/Portal/SessionDetail.jsx';
 import PortalPractice from './pages/Portal/Practice.jsx';
 import PortalProgress from './pages/Portal/Progress.jsx';
 
-// Supervisor Pages
-import SupervisorLayout from './components/layout/SupervisorLayout.jsx';
-import SupervisorHome from './pages/Supervisor/Home.jsx';
-import SupervisorPatients from './pages/Supervisor/Patients.jsx';
-import SupervisorDoctors from './pages/Supervisor/Doctors.jsx';
-import SupervisorSchedule from './pages/Supervisor/Schedule.jsx';
-
 export default function App() {
   return (
     <AuthProvider>
@@ -70,21 +63,6 @@ export default function App() {
             <Route path="sessions/:id"  element={<PortalSessionDetail />} />
             <Route path="practice"      element={<PortalPractice />} />
             <Route path="progress"      element={<PortalProgress />} />
-          </Route>
-
-          {/* Protected supervisor routes */}
-          <Route
-            path="/supervisor"
-            element={
-              <ProtectedRoute>
-                <SupervisorLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="home"          element={<SupervisorHome />} />
-            <Route path="patients"      element={<SupervisorPatients />} />
-            <Route path="doctors"       element={<SupervisorDoctors />} />
-            <Route path="schedule"      element={<SupervisorSchedule />} />
           </Route>
 
           {/* Fallback */}

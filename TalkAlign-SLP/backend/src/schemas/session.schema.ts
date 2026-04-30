@@ -3,7 +3,8 @@ import { z } from "zod";
 export const createSessionSchema = z.object({
   patient_id: z.string().uuid("Invalid patient ID"),
   date: z.string().datetime().optional().default(() => new Date().toISOString()),
-  summary: z.string().optional()
+  summary: z.string().optional(),
+  status: z.enum(["scheduled", "in_progress", "completed", "draft"]).optional()
 });
 
 export const saveSoapSchema = z.object({
@@ -13,6 +14,11 @@ export const saveSoapSchema = z.object({
     assessment: z.string().optional(),
     plan: z.string().optional()
   })
+});
+
+export const endSessionSchema = z.object({
+  end_time: z.string().datetime(),
+  duration: z.number().int().nonnegative()
 });
 
 export const assignTasksSchema = z.object({
@@ -26,3 +32,4 @@ export const assignTasksSchema = z.object({
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 export type SaveSoapInput = z.infer<typeof saveSoapSchema>;
 export type AssignTasksInput = z.infer<typeof assignTasksSchema>;
+export type EndSessionInput = z.infer<typeof endSessionSchema>;

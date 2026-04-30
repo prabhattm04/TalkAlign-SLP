@@ -1,11 +1,11 @@
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, CalendarHeart, FileHeart, Award, MessageSquareHeart } from 'lucide-react';
-import { useSession } from '../../hooks/useSessions.js';
+import { ArrowLeft, FileHeart, Award, MessageSquareHeart } from 'lucide-react';
+import { usePortalSession } from '../../hooks/usePortal.js';
 import { formatDate } from '../../utils/helpers.js';
 
 export default function PortalSessionDetail() {
   const { id } = useParams();
-  const { session, loading } = useSession(id);
+  const { session, loading } = usePortalSession(id);
 
   if (loading) {
     return <div className="text-center py-10 text-slate-400">Loading session...</div>;
@@ -35,7 +35,7 @@ export default function PortalSessionDetail() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-800">{formatDate(session.date)}</h1>
-            <p className="text-slate-500 font-medium">Session with {session.therapist}</p>
+            <p className="text-slate-500 font-medium">Session with {session.therapist || 'Therapist'}</p>
           </div>
         </div>
 
@@ -46,8 +46,8 @@ export default function PortalSessionDetail() {
               <MessageSquareHeart className="w-5 h-5" /> How it went
             </h2>
             <div className="p-5 rounded-2xl bg-purple-50/50 border border-purple-100">
-              <p className="text-slate-700 leading-relaxed">
-                {session.aiParentSummary || session.summary}
+              <p className="text-slate-700 leading-relaxed whitespace-pre-line">
+                {session.aiParentSummary || session.summary || "No summary available for this session."}
               </p>
             </div>
           </section>
@@ -77,17 +77,6 @@ export default function PortalSessionDetail() {
             )}
           </section>
 
-          {/* Therapist Note Fallback */}
-          {!session.aiParentSummary && session.soap?.plan && (
-            <section>
-              <h2 className="text-lg font-bold text-teal-600 mb-3">Therapist Plan</h2>
-              <div className="p-5 rounded-2xl bg-teal-50/50 border border-teal-100">
-                <p className="text-slate-700 leading-relaxed text-sm">
-                  {session.soap.plan}
-                </p>
-              </div>
-            </section>
-          )}
         </div>
       </div>
     </div>

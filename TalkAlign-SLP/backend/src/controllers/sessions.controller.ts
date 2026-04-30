@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { sendSuccess, sendError } from "../lib/apiResponse";
-import { CreateSessionInput, SaveSoapInput, AssignTasksInput } from "../schemas/session.schema";
+import { CreateSessionInput, SaveSoapInput, AssignTasksInput, EndSessionInput } from "../schemas/session.schema";
 
 export async function getSessions(req: Request, res: Response): Promise<void> {
   const supabase = req.supabase!;
@@ -68,7 +68,8 @@ export async function createSession(req: Request, res: Response): Promise<void> 
       date: input.date,
       summary: input.summary,
       therapist_id: req.user!.id,
-      status: "in_progress",
+      status: input.status || "in_progress",
+      start_time: input.status === 'scheduled' ? null : new Date().toISOString()
     })
     .select()
     .single();
@@ -128,4 +129,55 @@ export async function assignTasks(req: Request, res: Response): Promise<void> {
   }
 
   res.status(201).json(sendSuccess(data));
+}
+
+export async function endSession(req: Request, res: Response): Promise<void> {
+  const supabase = req.supabase!;
+  const { id } = req.params;
+  const { end_time, duration } = req.body as EndSessionInput;
+
+  const { data, error } = await supabase
+    .from("sessions")
+    .update({
+      end_time,
+      duration,
+      status: "completed"
+    })
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) {
+    res.status(500).json(sendError(error.message));
+    return;
+  }
+
+  res.status(200).json(sendSuccess(data));
+}
+
+export async function deleteSession(req: Request, res: Response): Promise<void> {
+  const supabase = req.supabase!;
+  const { id } = req.params;
+
+  const { error: tasksError } = await supabase
+    .from("home_practice_tasks")
+    .delete()
+    .eq("session_id", id);
+
+  if (tasksError) {
+    res.status(500).json(sendError("Failed to delete related tasks: " + tasksError.message));
+    return;
+  }
+
+  const { error } = await supabase
+    .from("sessions")
+    .delete()
+    .eq("id", id);
+
+  if (error) {
+    res.status(500).json(sendError(error.message));
+    return;
+  }
+
+  res.status(200).json(sendSuccess({ message: "Session deleted successfully" }));
 }

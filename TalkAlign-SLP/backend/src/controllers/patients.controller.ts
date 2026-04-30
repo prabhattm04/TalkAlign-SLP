@@ -40,10 +40,16 @@ export async function createPatient(req: Request, res: Response): Promise<void> 
   const supabase = req.supabase!;
   const input = req.body as CreatePatientInput;
 
+  // Generate a random ID e.g. PAT-A1B2C3
+  const crypto = require("crypto");
+  const randomChars = crypto.randomBytes(3).toString("hex").toUpperCase();
+  const patient_id = `PAT-${randomChars}`;
+
   const { data, error } = await supabase
     .from("patients")
     .insert({
       ...input,
+      patient_id,
       doctor_id: req.user!.id,
     })
     .select()

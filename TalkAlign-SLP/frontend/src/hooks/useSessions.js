@@ -5,7 +5,7 @@ import * as sessionsApi from '../api/sessions.js';
 export function useSessions() {
   const { 
     sessions, loadingSessions, fetchSessions, 
-    createSession, updateSession, saveSOAP 
+    createSession, updateSession, saveSOAP, deleteSession 
   } = useData();
 
   return {
@@ -16,10 +16,16 @@ export function useSessions() {
     createSession,
     updateSession,
     saveSOAP,
+    deleteSession,
     assignHomePractice: async (sessionId, tasks) => {
       // Passthrough to API, then refetch if needed or just return
       const res = await sessionsApi.assignHomePractice(sessionId, tasks);
       fetchSessions(); // re-sync after tasks are assigned since they might be joined
+      return res;
+    },
+    endSession: async (sessionId, data) => {
+      const res = await sessionsApi.endSession(sessionId, data);
+      fetchSessions();
       return res;
     }
   };

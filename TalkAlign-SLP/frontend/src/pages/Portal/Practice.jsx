@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
 import { Award, CheckCircle2, Sparkles } from 'lucide-react';
-import { useSessions } from '../../hooks/useSessions.js';
+import { usePortal } from '../../hooks/usePortal.js';
 
 export default function PortalPractice() {
-  const childId = 'p1';
-  const { sessions, loading } = useSessions(childId);
+  const { sessions, loading, toggleTask: apiToggleTask } = usePortal();
   const [tasks, setTasks] = useState([]);
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -25,11 +24,16 @@ export default function PortalPractice() {
   const activeTasks = tasks.filter(t => !t.completed);
   const completedTasks = tasks.filter(t => t.completed);
 
-  const toggleTask = (taskId) => {
+  const toggleTask = async (taskId) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+    
+    const isNowCompleted = !task.completed;
+    
+    // Optimistic UI Update locally for quick feedback
     setTasks(current =>
       current.map(t => {
         if (t.id === taskId) {
-          const isNowCompleted = !t.completed;
           if (isNowCompleted) {
             setShowConfetti(true);
             setTimeout(() => setShowConfetti(false), 2000);
@@ -39,6 +43,9 @@ export default function PortalPractice() {
         return t;
       })
     );
+
+    // Call API (the hook will also update its state)
+    await apiToggleTask(taskId, isNowCompleted);
   };
 
   return (

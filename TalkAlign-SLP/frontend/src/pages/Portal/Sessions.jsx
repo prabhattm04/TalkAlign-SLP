@@ -1,19 +1,18 @@
 import { Link } from 'react-router-dom';
 import { CalendarHeart, ChevronRight, FileHeart } from 'lucide-react';
-import { useSessions } from '../../hooks/useSessions.js';
+import { usePortal } from '../../hooks/usePortal.js';
 import { formatDate } from '../../utils/helpers.js';
 
 export default function PortalSessions() {
-  const childId = 'p1';
-  const { sessions, loading } = useSessions(childId);
+  const { sessions, loading, error } = usePortal();
 
   if (loading) {
     return <div className="text-center py-10 text-slate-400">Loading sessions...</div>;
   }
 
-  const completedSessions = sessions
-    .filter(s => s.status === 'completed')
-    .sort((a, b) => new Date(b.date) - new Date(a.date));
+  if (error) {
+    return <div className="text-center py-10 text-rose-500">{error}</div>;
+  }
 
   return (
     <div className="space-y-6 page-enter">
@@ -26,13 +25,13 @@ export default function PortalSessions() {
       </div>
 
       <div className="space-y-4">
-        {completedSessions.length === 0 ? (
+        {sessions.length === 0 ? (
           <div className="bg-white rounded-3xl p-10 text-center border border-rose-100 shadow-soft">
             <CalendarHeart className="w-12 h-12 text-slate-200 mx-auto mb-3" />
-            <p className="text-slate-500 font-medium">No sessions yet!</p>
+            <p className="text-slate-500 font-medium">No completed sessions yet!</p>
           </div>
         ) : (
-          completedSessions.map((session) => (
+          sessions.map((session) => (
             <Link
               key={session.id}
               to={`/portal/sessions/${session.id}`}
@@ -45,9 +44,9 @@ export default function PortalSessions() {
                   </div>
                   <div>
                     <h3 className="text-lg font-bold text-slate-800">{formatDate(session.date)}</h3>
-                    <p className="text-sm text-slate-500 mt-1 mb-3">With {session.therapist}</p>
+                    <p className="text-sm text-slate-500 mt-1 mb-3">With {session.therapist || 'Therapist'}</p>
                     <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 line-clamp-2 text-sm text-slate-600">
-                      {session.aiParentSummary || session.summary}
+                      {session.aiParentSummary || session.summary || "No summary available."}
                     </div>
                   </div>
                 </div>

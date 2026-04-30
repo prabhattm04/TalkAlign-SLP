@@ -1,26 +1,22 @@
 import { Link } from 'react-router-dom';
 import { CalendarHeart, CheckCircle2, ChevronRight, Video, FileHeart, Award } from 'lucide-react';
-import { usePatients } from '../../hooks/usePatients.js';
-import { useSessions } from '../../hooks/useSessions.js';
+import { usePortal } from '../../hooks/usePortal.js';
 import { formatDate } from '../../utils/helpers.js';
 
 export default function PortalHome() {
-  // In a real app, we'd fetch the patient associated with the logged-in caregiver.
-  // For now, we'll hardcode to 'p1' (Aarav).
-  const childId = 'p1';
-  const { patient, loading: pLoad } = usePatients().patients ? { patient: usePatients().patients.find(p => p.id === childId) } : { patient: null, loading: true };
-  const { sessions, loading: sLoad } = useSessions(childId);
+  const { caregiver, patients, sessions, loading, error } = usePortal();
 
-  if (pLoad || sLoad) {
+  if (loading) {
     return <div className="text-center py-10 text-slate-400">Loading your portal...</div>;
   }
 
-  const childName = patient?.name?.split(' ')[0] || 'your child';
-  const completedSessions = sessions.filter(s => s.status === 'completed').sort((a, b) => new Date(b.date) - new Date(a.date));
-  const nextSession = sessions.find(s => s.status === 'scheduled');
-  const latestSession = completedSessions[0];
+  if (error) {
+    return <div className="text-center py-10 text-rose-500">{error}</div>;
+  }
 
-  // Get active home practice from the latest session
+  const patient = patients && patients.length > 0 ? patients[0] : null;
+  const childName = patient?.name?.split(' ')[0] || 'your child';
+  const latestSession = sessions.length > 0 ? sessions[0] : null;
   const activePractice = latestSession?.homePractice?.filter(t => !t.completed) || [];
 
   return (
@@ -33,43 +29,19 @@ export default function PortalHome() {
             {childName.charAt(0)}
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-slate-800 mb-2">
-            Hi there, Aarav's Family 👋
+            Hi there, {caregiver?.name.split(' ')[0] || 'Family'} 👋
           </h1>
           <p className="text-slate-600 max-w-lg leading-relaxed">
-            Aarav is making wonderful progress! He completed a session recently and has a few practice tasks waiting.
+            {childName} is making wonderful progress! Check out the latest updates below.
           </p>
         </div>
       </div>
 
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Next Session Card */}
-        <div className="bg-white rounded-3xl p-6 border border-rose-100 shadow-soft">
-          <div className="flex items-center gap-2 text-rose-600 font-semibold mb-4">
-            <CalendarHeart className="w-5 h-5" />
-            Next Session
-          </div>
-          {nextSession ? (
-            <div className="space-y-4">
-              <div>
-                <p className="text-slate-500 text-sm">Date & Time</p>
-                <p className="text-lg font-bold text-slate-800">
-                  {formatDate(nextSession.date)} at {nextSession.time || 'TBD'}
-                </p>
-              </div>
-              <div className="flex items-center gap-3 bg-rose-50 p-3 rounded-2xl border border-rose-100">
-                <div className="w-10 h-10 rounded-full bg-white flex items-center justify-center flex-shrink-0 text-xl shadow-sm">👩🏽‍⚕️</div>
-                <div>
-                  <p className="text-sm font-semibold text-slate-800">{nextSession.therapist}</p>
-                  <p className="text-xs text-slate-500">Speech-Language Pathologist</p>
-                </div>
-              </div>
-              <button className="w-full py-3 rounded-2xl bg-slate-900 text-white font-medium hover:bg-slate-800 transition-colors flex items-center justify-center gap-2">
-                <Video className="w-4 h-4" /> Join Telehealth
-              </button>
-            </div>
-          ) : (
-            <p className="text-slate-500">No upcoming sessions scheduled.</p>
-          )}
+        {/* Next Session Card - Currently no scheduled sessions logic in backend, hiding or showing placeholder */}
+        <div className="bg-white rounded-3xl p-6 border border-rose-100 shadow-soft flex flex-col justify-center items-center">
+          <CalendarHeart className="w-8 h-8 text-rose-300 mb-2" />
+          <p className="text-slate-500 text-center">No upcoming sessions scheduled right now. We will notify you when the next session is set!</p>
         </div>
 
         {/* Home Practice Card */}
@@ -86,7 +58,7 @@ export default function PortalHome() {
           
           <div className="flex-1 space-y-3">
             {activePractice.length > 0 ? (
-              activePractice.map(task => (
+              activePractice.slice(0, 3).map(task => (
                 <div key={task.id} className="flex items-start gap-3 p-3 rounded-2xl bg-slate-50 hover:bg-orange-50/50 transition-colors border border-slate-100 cursor-pointer">
                   <div className="w-6 h-6 rounded-full border-2 border-slate-300 flex-shrink-0 mt-0.5" />
                   <p className="text-sm font-medium text-slate-700 leading-snug">{task.title}</p>
@@ -117,8 +89,8 @@ export default function PortalHome() {
             <span className="text-sm text-slate-400">{formatDate(latestSession.date)}</span>
           </div>
           <div className="p-4 rounded-2xl bg-purple-50/50 border border-purple-100 mb-4">
-            <p className="text-slate-700 leading-relaxed text-sm">
-              {latestSession.aiParentSummary || latestSession.summary}
+            <p className="text-slate-700 leading-relaxed text-sm whitespace-pre-line">
+              {latestSession.aiParentSummary || latestSession.summary || "No summary available for this session."}
             </p>
           </div>
           <Link to={`/portal/sessions/${latestSession.id}`} className="text-sm font-medium text-purple-600 hover:text-purple-700 flex items-center gap-1">

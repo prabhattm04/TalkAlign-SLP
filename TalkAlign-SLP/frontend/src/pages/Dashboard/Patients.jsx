@@ -13,7 +13,7 @@ const INTEREST_TAGS = ['Dinosaurs', 'Space', 'Cars', 'Animals', 'Art', 'Music', 
 function AddPatientModal({ onClose, onAdd }) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ 
-    name: '', age: '', gender: '', caregiver: '', 
+    name: '', age: '', gender: '', caregiver: '', caregiver_phone: '', caregiver_email: '',
     condition: '', notes: '', tags: [] 
   });
   const [customTag, setCustomTag] = useState('');
@@ -22,8 +22,23 @@ function AddPatientModal({ onClose, onAdd }) {
 
   function validateStep1() {
     const e = {};
-    if (!form.name.trim()) e.name = 'Name is required.';
+    if (!form.name.trim()) e.name = 'Patient Name is required.';
     if (!form.age || isNaN(form.age)) e.age = 'Valid age is required.';
+    if (!form.caregiver.trim()) e.caregiver = 'Caregiver Name is required.';
+    
+    if (!form.caregiver_phone.trim()) {
+      e.caregiver_phone = 'Phone number is required.';
+    } else {
+      const digits = form.caregiver_phone.replace(/\D/g, '');
+      if (digits.length < 10) e.caregiver_phone = 'Must be at least 10 digits.';
+    }
+
+    if (!form.caregiver_email.trim()) {
+      e.caregiver_email = 'Email is required.';
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.caregiver_email)) {
+      e.caregiver_email = 'Invalid email format.';
+    }
+
     return e;
   }
 
@@ -61,6 +76,8 @@ function AddPatientModal({ onClose, onAdd }) {
         notes: form.notes || undefined,
         tags: form.tags,
         caregiver_name: form.caregiver || undefined,
+        caregiver_phone: form.caregiver_phone || undefined,
+        caregiver_email: form.caregiver_email || undefined,
       });
       onClose();
     } catch (err) {
@@ -89,7 +106,7 @@ function AddPatientModal({ onClose, onAdd }) {
           <div className="bg-brand-500 h-1 transition-all duration-300" style={{ width: `${(step / 3) * 100}%` }}></div>
         </div>
 
-        <form onSubmit={step === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} className="p-6 space-y-6">
+        <form onSubmit={(e) => e.preventDefault()} className="p-6 space-y-6">
           {errors.submit && (
             <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
               {errors.submit}
@@ -114,8 +131,14 @@ function AddPatientModal({ onClose, onAdd }) {
                   </select>
                 </div>
               </div>
-              <Input id="add-caregiver" label="Caregiver Name (optional)" placeholder="Parent / Guardian"
-                value={form.caregiver} onChange={(e) => setForm((f) => ({ ...f, caregiver: e.target.value }))} />
+              <Input id="add-caregiver" label="Caregiver Name" placeholder="Parent / Guardian"
+                value={form.caregiver} onChange={(e) => setForm((f) => ({ ...f, caregiver: e.target.value }))} error={errors.caregiver} />
+              <div className="grid grid-cols-2 gap-4">
+                <Input id="add-caregiver-phone" label="Phone Number" placeholder="e.g. 9876543210"
+                  value={form.caregiver_phone} onChange={(e) => setForm((f) => ({ ...f, caregiver_phone: e.target.value }))} error={errors.caregiver_phone} />
+                <Input id="add-caregiver-email" label="Email Address" type="email" placeholder="parent@example.com"
+                  value={form.caregiver_email} onChange={(e) => setForm((f) => ({ ...f, caregiver_email: e.target.value }))} error={errors.caregiver_email} />
+              </div>
             </div>
           )}
 
@@ -182,7 +205,7 @@ function AddPatientModal({ onClose, onAdd }) {
             {step < 3 ? (
               <Button type="button" variant="primary" size="md" className="flex-1" onClick={handleNext}>Next Step</Button>
             ) : (
-              <Button type="submit" variant="primary" size="md" className="flex-1" loading={loading}>Complete Intake</Button>
+              <Button type="button" variant="primary" size="md" className="flex-1" loading={loading} onClick={handleSubmit}>Complete Intake</Button>
             )}
           </div>
         </form>
@@ -192,7 +215,7 @@ function AddPatientModal({ onClose, onAdd }) {
 }
 
 export default function Patients() {
-  const { patients, loading, addPatient } = usePatients();
+  const { patients, loading, addPatient, updatePatient } = usePatients();
   const { sessions } = useSessions();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -298,7 +321,16 @@ export default function Patients() {
                     <td className="px-6 py-4 text-sm text-slate-700">{p.age} yrs</td>
                     <td className="px-6 py-4 text-sm text-slate-700">{p.condition}</td>
                     <td className="px-6 py-4 text-sm text-slate-500">{lastSession ? formatDate(lastSession) : '—'}</td>
-                    <td className="px-6 py-4"><Badge status={p.status}>{p.status}</Badge></td>
+                    <td className="px-6 py-4">
+                      <select 
+                        className={`text-xs font-medium px-2.5 py-1 rounded-full border outline-none cursor-pointer ${p.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}
+                        value={p.status}
+                        onChange={(e) => updatePatient(p.id, { status: e.target.value })}
+                      >
+                        <option value="active">Active</option>
+                        <option value="discharged">Discharged</option>
+                      </select>
+                    </td>
                     <td className="px-6 py-4">
                       <Link to={`/dashboard/patients/${p.id}`}>
                         <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
@@ -327,7 +359,15 @@ export default function Patients() {
                   <p className="text-xs text-slate-400 mt-0.5">{lastSession ? formatDate(lastSession) : 'No sessions'}</p>
                 </div>
                 <div className="flex flex-col items-end gap-1.5">
-                  <Badge status={p.status}>{p.status}</Badge>
+                  <select 
+                    className={`text-[10px] font-medium px-2 py-0.5 rounded-full border outline-none cursor-pointer ${p.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}
+                    value={p.status}
+                    onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
+                    onChange={(e) => { e.stopPropagation(); e.preventDefault(); updatePatient(p.id, { status: e.target.value }); }}
+                  >
+                    <option value="active">Active</option>
+                    <option value="discharged">Discharged</option>
+                  </select>
                   <ChevronRight className="w-4 h-4 text-slate-400" />
                 </div>
               </Link>

@@ -59,6 +59,12 @@ app.use("/api/v1/patients", patientsRouter);
 
 import sessionsRouter from "./routes/sessions.routes";
 app.use("/api/v1/sessions", sessionsRouter);
+
+import goalsRouter from "./routes/goals.routes";
+app.use("/api/v1/goals", goalsRouter);
+
+import portalRouter from "./routes/portal.routes";
+app.use("/api/v1/portal", portalRouter);
 //
 // ---------------------------------------------------------------------------
 

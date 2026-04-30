@@ -1,20 +1,19 @@
 import { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { Mail, Lock, Stethoscope, Eye, EyeOff } from 'lucide-react';
+import { Mail, Lock, Stethoscope, Eye, EyeOff, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
 
 const ROLES = [
-  { value: 'doctor', label: '🩺 Doctor / SLP' },
-  { value: 'parent', label: '👨‍👩‍👧 Parent' },
-  { value: 'supervisor', label: '🏢 Supervisor' },
+  { value: 'doctor', label: 'Doctor', icon: Stethoscope },
+  { value: 'parent', label: 'Parent', icon: Users },
 ];
 
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login, loading, error, clearError, user } = useAuth();
+  const { login, loading, error, clearError } = useAuth();
 
   const [form, setForm] = useState({ email: '', password: '', role: 'doctor' });
   const [showPass, setShowPass] = useState(false);
@@ -38,7 +37,6 @@ export default function Login() {
       const result = await login({ email: form.email, password: form.password });
       let defaultDestination = '/dashboard';
       if (result.user.role === 'parent') defaultDestination = '/portal/home';
-      if (result.user.role === 'supervisor') defaultDestination = '/supervisor/home';
       
       const destination = location.state?.from?.pathname || defaultDestination;
       navigate(destination, { replace: true });
@@ -78,17 +76,18 @@ export default function Login() {
 
           {/* Role toggle */}
           <div className="flex rounded-xl bg-slate-100 p-1 mb-6">
-            {ROLES.map(({ value, label }) => (
+            {ROLES.map(({ value, label, icon: Icon }) => (
               <button
                 key={value}
                 type="button"
                 onClick={() => setForm((f) => ({ ...f, role: value }))}
-                className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200 ${
+                className={`flex-1 py-2 text-sm font-medium rounded-lg transition-all duration-200 flex items-center justify-center gap-2 ${
                   form.role === value
                     ? 'bg-white shadow text-brand-700'
                     : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
+                <Icon className={`w-4 h-4 ${form.role === value ? 'text-brand-600' : 'text-slate-400'}`} />
                 {label}
               </button>
             ))}
@@ -162,14 +161,6 @@ export default function Login() {
               Create one
             </Link>
           </p>
-
-          {/* Demo credentials hint */}
-          <div className="mt-6 p-3 bg-slate-50 rounded-xl border border-slate-100 grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            <div className="col-span-full font-medium text-slate-500 mb-1">Demo credentials (pw: password123):</div>
-            <div className="text-slate-600 font-mono">doctor@talkalign.com</div>
-            <div className="text-slate-600 font-mono">parent@talkalign.com</div>
-            <div className="text-slate-600 font-mono col-span-full">admin@talkalign.com (Supervisor)</div>
-          </div>
         </div>
       </div>
     </div>

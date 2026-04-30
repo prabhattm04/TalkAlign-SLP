@@ -4,7 +4,7 @@ import * as sdk from "microsoft-cognitiveservices-speech-sdk";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
 import fs from "fs/promises";
-import fsSync from "fs";
+
 import path from "path";
 import os from "os";
 
@@ -28,7 +28,7 @@ export interface SOAPNote {
 }
 
 // ---------------------------------------------------------------------------
-// Azure OpenAI client factory (lazy — only created when pipeline runs)
+// Azure OpenAI client factory (lazy â€” only created when pipeline runs)
 // ---------------------------------------------------------------------------
 
 function getAzureClient(): AzureOpenAI {
@@ -45,7 +45,7 @@ function getAzureClient(): AzureOpenAI {
 }
 
 // ---------------------------------------------------------------------------
-// Transcription — HuggingFace Whisper Large v3 via local Python script
+// Transcription â€” HuggingFace Whisper Large v3 via local Python script
 // ---------------------------------------------------------------------------
 
 export async function transcribeAudio(
@@ -86,19 +86,19 @@ export async function transcribeAudio(
     let fullText = "";
 
     await new Promise<void>((resolve, reject) => {
-      recognizer.recognized = (s, e) => {
+      recognizer.recognized = (_s, e) => {
         if (e.result.reason === sdk.ResultReason.RecognizedSpeech) {
           fullText += e.result.text + " ";
         }
       };
 
-      recognizer.canceled = (s, e) => {
+      recognizer.canceled = (_s, e) => {
         if (e.reason === sdk.CancellationReason.Error) {
           reject(new Error(`Azure Speech error: ${e.errorDetails}`));
         }
       };
 
-      recognizer.sessionStopped = (s, e) => {
+      recognizer.sessionStopped = (_s, _e) => {
         recognizer.stopContinuousRecognitionAsync(() => {
           resolve();
         });
@@ -116,7 +116,7 @@ export async function transcribeAudio(
 }
 
 // ---------------------------------------------------------------------------
-// SOAP Note generation — Azure OpenAI
+// SOAP Note generation â€” Azure OpenAI
 // ---------------------------------------------------------------------------
 
 const SOAP_SYSTEM_PROMPT = `You are a clinical assistant for speech-language pathology (SLP) sessions.
@@ -180,7 +180,7 @@ Generate the SOAP note JSON.`,
 }
 
 // ---------------------------------------------------------------------------
-// Parent summary — Azure OpenAI
+// Parent summary â€” Azure OpenAI
 // ---------------------------------------------------------------------------
 
 const SUMMARY_SYSTEM_PROMPT = `You are a compassionate communication assistant for speech-language pathology.
@@ -188,7 +188,7 @@ Write a short, warm, non-clinical summary of a therapy session for a parent or c
 
 Guidelines:
 - 3 to 5 sentences maximum
-- Use simple, everyday language — no clinical jargon
+- Use simple, everyday language â€” no clinical jargon
 - Be positive and encouraging while being honest
 - Focus on what the child practiced and any progress made
 - Mention one concrete home activity the family can do`;
@@ -222,3 +222,55 @@ Write the parent summary.`,
 
   return completion.choices[0]?.message?.content?.trim() ?? "";
 }
+
+// ---------------------------------------------------------------------------
+// Auto-suggest Goals â€” Azure OpenAI
+// ---------------------------------------------------------------------------
+
+const GOAL_SUGGEST_SYSTEM_PROMPT = `You are an expert speech-language pathologist (SLP).
+Given the patient's past session SOAP notes and transcript summaries, suggest 3-5 therapeutic goals or tasks.
+The output MUST be a JSON array of objects with the following schema:
+[
+  {
+    "title": "Clear, actionable task/goal title",
+    "type": "short_term" | "long_term",
+    "baseline": "Optional baseline performance if known",
+    "target": "Optional target performance/accuracy"
+  }
+]
+Do not include any extra text. Return ONLY the valid JSON array.`;
+
+export async function suggestGoals(
+  patient: PatientInfo,
+  sessionsContext: string
+): Promise<any[]> {
+  const client = getAzureClient();
+
+  const completion = await client.chat.completions.create({
+    model: config.AZURE_OPENAI_DEPLOYMENT,
+    messages: [
+      { role: "system", content: GOAL_SUGGEST_SYSTEM_PROMPT },
+      {
+        role: "user",
+        content: `Patient: ${patient.name}, Age: ${patient.age}, Condition: ${patient.condition}
+
+Past Sessions Context:
+${sessionsContext}
+
+Generate suggested goals.`,
+      },
+    ],
+    temperature: 0.5,
+    max_tokens: 1500,
+  });
+
+  const raw = completion.choices[0]?.message?.content ?? "[]";
+
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    throw new Error("Azure OpenAI returned invalid JSON for the goals suggestion");
+  }
+}
+

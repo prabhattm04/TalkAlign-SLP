@@ -26,43 +26,61 @@ function StatCard({ icon: Icon, label, value, delta, color, bg }) {
 }
 
 function ActivityChart({ sessions }) {
-  // Compute real activity for the last 7 days
+  // Compute real activity for the current week (Monday - Sunday)
   const today = new Date();
+  
+  // Calculate Monday of the current week
+  // getDay() is 0 (Sun) to 6 (Sat). 
+  // If it's Sunday (0), we want to go back 6 days. 
+  // If it's Monday (1), we want to go back 0 days.
+  const dayOfWeek = today.getDay();
+  const diffToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - diffToMonday);
+  monday.setHours(0, 0, 0, 0);
+
   const data = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - (6 - i));
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
     const dayStr = d.toLocaleDateString('en-US', { weekday: 'short' });
     const dateStr = d.toISOString().split('T')[0];
     
-    const count = sessions.filter(s => s.status === 'completed' && s.date.startsWith(dateStr)).length;
+    // Count completed sessions for this specific date
+    const count = sessions.filter(s => 
+      s.status === 'completed' && 
+      new Date(s.date).toISOString().split('T')[0] === dateStr
+    ).length;
+    
     return { day: dayStr, count };
   });
 
-  const maxCount = Math.max(...data.map(d => d.count), 1); // Avoid div by 0
+  const maxCount = Math.max(...data.map(d => d.count), 1);
 
   return (
-    <div className="card p-6 flex flex-col justify-between h-full">
-      <div>
+    <div className="card p-5 flex flex-col justify-between h-[250px]">
+      <div className="mb-4">
         <h3 className="font-semibold text-slate-900">Activity Trend</h3>
-        <p className="text-sm text-slate-500 mb-6">Sessions completed this week</p>
+        <p className="text-sm text-slate-500">Sessions completed this week (Mon – Sun)</p>
       </div>
       <div className="flex items-end justify-between gap-3 h-32 mt-auto">
         {data.map((d, idx) => {
-          const h = `${(d.count / maxCount) * 100}%`;
+          const percentage = (d.count / maxCount) * 100;
           return (
-          <div key={idx} className="flex flex-col items-center gap-2 flex-1 group h-full justify-end">
-            <div className="w-full bg-slate-50 rounded-t-lg relative flex flex-col justify-end transition-colors h-full">
-               <div 
-                 className="w-full bg-brand-500 rounded-t-lg transition-all duration-500 group-hover:bg-brand-600"
-                 style={{ height: d.count > 0 ? Math.max((d.count / maxCount) * 100, 10) + '%' : '0%' }}
-               />
-               <span className="absolute -top-7 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity">
-                 {d.count}
-               </span>
+            <div key={idx} className="flex flex-col items-center gap-2 flex-1 group h-full justify-end">
+              <div className="w-full bg-slate-50 rounded-t-lg relative flex flex-col justify-end transition-colors h-full">
+                <div 
+                  className="w-full bg-brand-500 rounded-t-lg transition-all duration-500 group-hover:bg-brand-600"
+                  style={{ height: d.count > 0 ? `${Math.max(percentage, 10)}%` : '0%' }}
+                />
+                <span className="absolute -top-7 left-1/2 -translate-x-1/2 text-xs font-bold text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap bg-white px-1.5 py-0.5 rounded border border-slate-100 shadow-sm z-10">
+                  {d.count} {d.count === 1 ? 'session' : 'sessions'}
+                </span>
+              </div>
+              <span className="text-xs text-slate-400 font-medium">{d.day}</span>
             </div>
-            <span className="text-xs text-slate-400 font-medium">{d.day}</span>
-          </div>
-        )})}
+          );
+        })}
       </div>
     </div>
   );

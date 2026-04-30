@@ -6,14 +6,19 @@ import { useAuth } from './AuthContext.jsx';
 const DataContext = createContext(null);
 
 export function DataProvider({ children }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const [patients, setPatients] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loadingPatients, setLoadingPatients] = useState(true);
   const [loadingSessions, setLoadingSessions] = useState(true);
 
+  const isParent = user?.role === 'parent';
+
   const fetchPatients = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isParent) {
+      setLoadingPatients(false);
+      return;
+    }
     setLoadingPatients(true);
     try {
       const data = await patientsApi.getPatients();
@@ -26,7 +31,10 @@ export function DataProvider({ children }) {
   }, [isAuthenticated]);
 
   const fetchSessions = useCallback(async () => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || isParent) {
+      setLoadingSessions(false);
+      return;
+    }
     setLoadingSessions(true);
     try {
       const data = await sessionsApi.getSessions();
@@ -85,10 +93,15 @@ export function DataProvider({ children }) {
     return updated;
   };
 
+  const deleteSession = async (id) => {
+    await sessionsApi.deleteSession(id);
+    setSessions(prev => prev.filter(s => s.id !== id));
+  };
+
   return (
     <DataContext.Provider value={{
       patients, loadingPatients, fetchPatients, addPatient, updatePatient, deletePatient,
-      sessions, loadingSessions, fetchSessions, createSession, updateSession, saveSOAP
+      sessions, loadingSessions, fetchSessions, createSession, updateSession, saveSOAP, deleteSession
     }}>
       {children}
     </DataContext.Provider>
