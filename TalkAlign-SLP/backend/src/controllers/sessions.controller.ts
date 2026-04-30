@@ -47,6 +47,20 @@ export async function createSession(req: Request, res: Response): Promise<void> 
   const supabase = req.supabase!;
   const input = req.body as CreateSessionInput;
 
+  // Verify the patient exists and belongs to the requesting doctor.
+  // req.supabase is user-scoped (RLS), so this query returns nothing for patients
+  // owned by a different doctor.
+  const { data: patient } = await supabase
+    .from("patients")
+    .select("id")
+    .eq("id", input.patient_id)
+    .single();
+
+  if (!patient) {
+    res.status(404).json(sendError("Patient not found or does not belong to you"));
+    return;
+  }
+
   const { data, error } = await supabase
     .from("sessions")
     .insert({

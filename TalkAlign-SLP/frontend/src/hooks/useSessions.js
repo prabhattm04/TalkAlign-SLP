@@ -26,27 +26,21 @@ export function useSessions() {
 }
 
 export function useSession(id) {
-  const { sessions, loadingSessions } = useData();
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Always fetch from the detail endpoint so home_practice_tasks are included.
+  // The sessions list query omits that join, so the context cache cannot be used here.
   useEffect(() => {
-    if (!id) return;
-
-    // First try to find in context
-    const found = sessions.find(s => s.id === id);
-    if (found) {
-      setSession(found);
-      setLoading(false);
-      return;
-    }
+    if (!id) { setLoading(false); return; }
 
     setLoading(true);
+    setError(null);
     sessionsApi.getSession(id)
-      .then((data) => { setSession(data); setLoading(false); })
-      .catch((err) => { setError(err.message); setLoading(false); });
-  }, [id, sessions]);
+      .then(data  => { setSession(data); setLoading(false); })
+      .catch(err  => { setError(err.message); setLoading(false); });
+  }, [id]);
 
-  return { session, loading: loading || loadingSessions, error };
+  return { session, loading, error };
 }

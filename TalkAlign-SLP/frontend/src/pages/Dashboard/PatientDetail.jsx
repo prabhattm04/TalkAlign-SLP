@@ -25,8 +25,11 @@ function InfoItem({ icon: Icon, label, value }) {
 export default function PatientDetail() {
   const { id } = useParams();
   const { patient, loading: pLoad } = usePatient(id);
-  const { sessions, loading: sLoad } = useSessions(id);
+  const { sessions: allSessions, loading: sLoad } = useSessions();
   const [activeTab, setActiveTab] = useState('overview');
+
+  // Filter sessions for this patient
+  const sessions = allSessions.filter(s => s.patient_id === id);
 
   const tabs = [
     { id: 'overview', label: 'Overview' },
@@ -80,7 +83,7 @@ export default function PatientDetail() {
             <div className="flex flex-wrap gap-4 mt-3">
               <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">Age {patient.age}</span>
               <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">{patient.gender}</span>
-              <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">{patient.totalSessions} sessions</span>
+              <span className="text-xs text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">{sessions.length} sessions</span>
             </div>
           </div>
           <Link to={`/dashboard/sessions/new?patientId=${patient.id}`}>
@@ -119,11 +122,11 @@ export default function PatientDetail() {
                 <h3 className="font-semibold text-slate-900 mb-4">Patient Info</h3>
                 <div className="space-y-4">
                   <InfoItem icon={User2}     label="Full Name"   value={patient.name} />
-                  <InfoItem icon={CalendarDays} label="Last Session" value={patient.lastSession ? formatDate(patient.lastSession) : 'No sessions yet'} />
+                  <InfoItem icon={CalendarDays} label="Last Session" value={sessions.length > 0 ? formatDate([...sessions].sort((a, b) => new Date(b.date) - new Date(a.date))[0].date) : 'No sessions yet'} />
                   <InfoItem icon={Stethoscope}  label="Condition"   value={patient.condition} />
-                  <InfoItem icon={Phone}     label="Caregiver"   value={patient.caregiver} />
-                  {patient.caregiverPhone && (
-                    <InfoItem icon={Phone}   label="Phone"       value={patient.caregiverPhone} />
+                  <InfoItem icon={Phone}     label="Caregiver"   value={patient.caregiver_name} />
+                  {patient.caregiver_phone && (
+                    <InfoItem icon={Phone}   label="Phone"       value={patient.caregiver_phone} />
                   )}
                 </div>
               </div>
@@ -162,8 +165,8 @@ export default function PatientDetail() {
                     <p className="text-2xl font-bold text-slate-900 mt-1">{sessions.length}</p>
                   </div>
                   <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                    <p className="text-xs text-slate-500">Attendance Rate</p>
-                    <p className="text-2xl font-bold text-emerald-600 mt-1">92%</p>
+                    <p className="text-xs text-slate-500">Completed</p>
+                    <p className="text-2xl font-bold text-emerald-600 mt-1">{sessions.filter(s => s.status === 'completed').length}</p>
                   </div>
                 </div>
               </div>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useReducer, useEffect } from 'react';
+import { createContext, useContext, useReducer } from 'react';
 import * as authApi from '../api/auth.js';
 
 // ── State shape ────────────────────────────────────────────────────────────────
@@ -12,11 +12,13 @@ const initialState = {
 
 // ── Reducer ────────────────────────────────────────────────────────────────────
 function authReducer(state, action) {
+  let nextState;
   switch (action.type) {
     case 'AUTH_START':
-      return { ...state, loading: true, error: null };
+      nextState = { ...state, loading: true, error: null };
+      break;
     case 'AUTH_SUCCESS':
-      return {
+      nextState = {
         ...state,
         loading: false,
         user: action.payload.user,
@@ -24,15 +26,30 @@ function authReducer(state, action) {
         isAuthenticated: true,
         error: null,
       };
+      // Persist SYNCHRONOUSLY so the token is available before any effects fire
+      localStorage.setItem(
+        'talkalign_auth',
+        JSON.stringify({
+          user: nextState.user,
+          token: nextState.token,
+          isAuthenticated: true,
+        })
+      );
+      break;
     case 'AUTH_ERROR':
-      return { ...state, loading: false, error: action.payload };
+      nextState = { ...state, loading: false, error: action.payload };
+      break;
     case 'LOGOUT':
-      return { ...initialState };
+      nextState = { ...initialState };
+      localStorage.removeItem('talkalign_auth');
+      break;
     case 'CLEAR_ERROR':
-      return { ...state, error: null };
+      nextState = { ...state, error: null };
+      break;
     default:
-      return state;
+      nextState = state;
   }
+  return nextState;
 }
 
 // ── Context ────────────────────────────────────────────────────────────────────
@@ -53,22 +70,6 @@ export function AuthProvider({ children }) {
     }
     return initialState;
   });
-
-  // Persist auth state to localStorage
-  useEffect(() => {
-    if (state.isAuthenticated) {
-      localStorage.setItem(
-        'talkalign_auth',
-        JSON.stringify({
-          user: state.user,
-          token: state.token,
-          isAuthenticated: true,
-        })
-      );
-    } else {
-      localStorage.removeItem('talkalign_auth');
-    }
-  }, [state.isAuthenticated, state.user, state.token]);
 
   // ── Actions ──────────────────────────────────────────────────────────────────
   async function login(credentials) {

@@ -8,6 +8,7 @@ export const createPatientSchema = z.object({
   notes: z.string().optional(),
   tags: z.array(z.string()).default([]),
   caregiver_id: z.string().uuid().nullable().optional(),
+  caregiver_name: z.string().optional(),
   caregiver_phone: z.string().optional()
 });
 
@@ -20,6 +21,7 @@ export const updatePatientSchema = z.object({
   status: z.enum(["active", "discharged", "archived"]).optional(),
   tags: z.array(z.string()).optional(),
   caregiver_id: z.string().uuid().nullable().optional(),
+  caregiver_name: z.string().optional(),
   caregiver_phone: z.string().optional()
 });
 

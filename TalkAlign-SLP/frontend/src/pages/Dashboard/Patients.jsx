@@ -11,13 +11,12 @@ import Badge from '../../components/ui/Badge.jsx';
 const INTEREST_TAGS = ['Dinosaurs', 'Space', 'Cars', 'Animals', 'Art', 'Music', 'Sports', 'Video Games'];
 
 function AddPatientModal({ onClose, onAdd }) {
-// ... leaving the rest of AddPatientModal unchanged, jumping to Patients component
-
   const [step, setStep] = useState(1);
   const [form, setForm] = useState({ 
     name: '', age: '', gender: '', caregiver: '', 
     condition: '', notes: '', tags: [] 
   });
+  const [customTag, setCustomTag] = useState('');
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState({});
 
@@ -53,9 +52,23 @@ function AddPatientModal({ onClose, onAdd }) {
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
-    await onAdd({ ...form, age: Number(form.age) });
-    setLoading(false);
-    onClose();
+    try {
+      await onAdd({
+        name: form.name,
+        age: Number(form.age),
+        gender: form.gender,
+        condition: form.condition,
+        notes: form.notes || undefined,
+        tags: form.tags,
+        caregiver_name: form.caregiver || undefined,
+      });
+      onClose();
+    } catch (err) {
+      console.error('Failed to add patient:', err);
+      setErrors({ submit: err.message || 'Failed to add patient.' });
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -77,6 +90,11 @@ function AddPatientModal({ onClose, onAdd }) {
         </div>
 
         <form onSubmit={step === 3 ? handleSubmit : (e) => { e.preventDefault(); handleNext(); }} className="p-6 space-y-6">
+          {errors.submit && (
+            <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-700 text-sm">
+              {errors.submit}
+            </div>
+          )}
           {step === 1 && (
             <div className="space-y-4 animate-fade-in">
               <h4 className="font-semibold text-slate-900">Demographics</h4>
@@ -123,14 +141,17 @@ function AddPatientModal({ onClose, onAdd }) {
               <Input 
                 id="custom-tag" 
                 placeholder="Type a custom interest and press Enter…"
+                value={customTag}
+                onChange={(e) => setCustomTag(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault();
-                    const val = e.target.value.trim();
+                    e.stopPropagation();
+                    const val = customTag.trim();
                     if (val && !form.tags.includes(val)) {
                       setForm(f => ({ ...f, tags: [...f.tags, val] }));
                     }
-                    e.target.value = '';
+                    setCustomTag('');
                   }
                 }}
               />

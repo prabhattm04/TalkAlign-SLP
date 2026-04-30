@@ -23,9 +23,17 @@ const envSchema = z.object({
     .string()
     .min(1, { message: "SUPABASE_SERVICE_ROLE_KEY is required" }),
 
-  OPENAI_API_KEY: z
-    .string()
-    .min(1, { message: "OPENAI_API_KEY is required" }),
+  OPENAI_API_KEY: z.string().optional(),
+
+  // Azure OpenAI — required when the AI pipeline runs
+  AZURE_OPENAI_ENDPOINT: z.string().url().optional(),
+  AZURE_OPENAI_KEY: z.string().optional(),
+  AZURE_OPENAI_DEPLOYMENT: z.string().default("gpt-4o"),
+  AZURE_OPENAI_API_VERSION: z.string().default("2024-05-01-preview"),
+
+  // Azure Speech — required for Transcription
+  AZURE_SPEECH_KEY: z.string().optional(),
+  AZURE_SPEECH_REGION: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------
