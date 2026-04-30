@@ -3,12 +3,13 @@ import { useParams, useSearchParams, Link } from 'react-router-dom';
 import {
   ArrowLeft, Mic, Square, CheckCircle2,
   Wand2, FileText, Lock, UploadCloud, MessageSquare, PlayCircle, Target,
-  Plus, Trash2, ClipboardList
+  Plus, Trash2, ClipboardList, Pause, Play, AlertCircle,
 } from 'lucide-react';
 import { useSession, useSessions } from '../../hooks/useSessions.js';
 import { usePatient } from '../../hooks/usePatients.js';
 import { useGoals } from '../../hooks/useGoals.js';
 import { formatDate } from '../../utils/helpers.js';
+import * as sessionsApi from '../../api/sessions.js';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
 
@@ -59,96 +60,254 @@ export default function Session() {
   const patientId = searchParams.get('patientId');
   const isNew = id === 'new';
 
-  // useSession for read, useSessions for write operations
   const { session } = useSession(isNew ? null : id);
-  const { saveSOAP, createSession: createNewSession, assignHomePractice } = useSessions();
+  const { saveSOAP, createSession: createNewSession, assignHomePractice, refetch: refetchSessions } = useSessions();
   const { patient: sessionPatient } = usePatient(isNew ? patientId : session?.patient_id);
   const { goals } = useGoals(sessionPatient?.id);
 
-  // UI state machine: idle → recording → uploading → transcribing → generating → draft → finalized
-  const [status, setStatus] = useState(isNew ? 'idle' : 'draft');
-  const [elapsed, setElapsed] = useState(0);
-  const [soap, setSoap] = useState({ subjective: '', objective: '', assessment: '', plan: '' });
-  const [transcript, setTranscript] = useState([]);
-  const [saved, setSaved] = useState(false);
+  // ── UI state machine ──────────────────────────────────────────────────────
+  // idle → choose → recording → uploading → transcribing → draft → finalized
+  const [status, setStatus]           = useState(isNew ? 'idle' : 'loading');
+  const [elapsed, setElapsed]         = useState(0);
+  const [isPaused, setIsPaused]       = useState(false);
+  const [soap, setSoap]               = useState({ subjective: '', objective: '', assessment: '', plan: '' });
+  const [rawTranscript, setRawTranscript] = useState('');
+  const [transcript]                  = useState([]);  // legacy chat-bubble format (populated for old sessions)
+  const [parentSummary, setParentSummary] = useState('');
+  const [saved, setSaved]             = useState(false);
   const [activeSession, setActiveSession] = useState(null);
+  const [uploadError, setUploadError] = useState('');
   // Home practice
-  const [tasks, setTasks] = useState(['']);
+  const [tasks, setTasks]             = useState(['']);
   const [tasksSaving, setTasksSaving] = useState(false);
-  const [tasksSaved, setTasksSaved] = useState(false);
-  const timerRef = useRef(null);
+  const [tasksSaved, setTasksSaved]   = useState(false);
 
-  // Populate SOAP and transcript when an existing session is loaded.
-  // The DB stores individual soap_* columns, not a nested object.
+  // ── Refs ─────────────────────────────────────────────────────────────────
+  const timerRef        = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef  = useRef([]);
+  const recordingMimeRef = useRef('audio/webm');
+  const streamRef       = useRef(null);
+  const pollingRef      = useRef(null);
+  const fileInputRef    = useRef(null);
+
+  // ── Populate from existing session ───────────────────────────────────────
   useEffect(() => {
-    if (session) {
-      setSoap({
-        subjective: session.soap_subjective || '',
-        objective:  session.soap_objective  || '',
-        assessment: session.soap_assessment || '',
-        plan:       session.soap_plan       || '',
-      });
-      setTranscript(session.transcript || [
-        { speaker: 'Therapist', text: "Let's review our minimal pairs. Ready?", time: "0:01" },
-        { speaker: 'Patient',   text: "Yes.",                                    time: "0:05" },
-        { speaker: 'Therapist', text: "Say 'Ring'.",                             time: "0:08" },
-        { speaker: 'Patient',   text: "Wing.",                                   time: "0:10" },
-      ]);
-      setStatus(session.status === 'completed' ? 'finalized' : 'draft');
+    if (!session) return;
+
+    const dbStatus = session.status;
+
+    if (dbStatus === 'completed') {
+      setStatus('finalized');
+      applySessionData(session);
+    } else if (dbStatus === 'draft') {
+      setStatus('draft');
+      applySessionData(session);
+    } else if (dbStatus === 'processing') {
+      // Pipeline is still running — resume polling
+      setStatus('transcribing');
+      startPolling(session.id);
+    } else {
+      // in_progress, scheduled → ready for a new recording
+      setStatus('idle');
     }
-  }, [session]);
+  }, [session]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  function applySessionData(s) {
+    setSoap({
+      subjective: s.soap_subjective || '',
+      objective:  s.soap_objective  || '',
+      assessment: s.soap_assessment || '',
+      plan:       s.soap_plan       || '',
+    });
+    setRawTranscript(typeof s.transcript === 'string' ? s.transcript : '');
+    setParentSummary(s.ai_parent_summary || '');
+  }
+
+  // ── Recording timer (pauses when isPaused) ────────────────────────────────
   useEffect(() => {
-    if (status === 'recording') {
+    if (status === 'recording' && !isPaused) {
       timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
     } else {
       clearInterval(timerRef.current);
     }
     return () => clearInterval(timerRef.current);
-  }, [status]);
+  }, [status, isPaused]);
 
-  function formatTime(s) {
-    const m   = Math.floor(s / 60).toString().padStart(2, '0');
-    const sec = (s % 60).toString().padStart(2, '0');
-    return `${m}:${sec}`;
+  // ── Cleanup polling on unmount ────────────────────────────────────────────
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current);
+    };
+  }, []);
+
+  // ── Polling ───────────────────────────────────────────────────────────────
+  function startPolling(sessionId) {
+    if (pollingRef.current) clearInterval(pollingRef.current);
+
+    pollingRef.current = setInterval(async () => {
+      try {
+        const data = await sessionsApi.getSession(sessionId);
+
+        if (data.status === 'draft' || data.status === 'completed') {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+
+          setSoap({
+            subjective: data.soap_subjective || '',
+            objective:  data.soap_objective  || '',
+            assessment: data.soap_assessment || '',
+            plan:       data.soap_plan       || '',
+          });
+          setRawTranscript(typeof data.transcript === 'string' ? data.transcript : '');
+          setParentSummary(data.ai_parent_summary || '');
+          setStatus(data.status === 'completed' ? 'finalized' : 'draft');
+          refetchSessions();
+        } else if (data.status === 'error') {
+          clearInterval(pollingRef.current);
+          pollingRef.current = null;
+          setUploadError('AI processing failed. Please try uploading the audio again.');
+          setStatus('idle');
+        }
+      } catch (err) {
+        console.error('[Polling] Error:', err.message);
+      }
+    }, 2000);
   }
 
+  // ── Audio recording ───────────────────────────────────────────────────────
+  async function handleStartRecording() {
+    if (!navigator.mediaDevices || !window.MediaRecorder) {
+      setUploadError('Audio recording is not supported in this browser. Please upload a file instead.');
+      return;
+    }
+
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      const msg = err.name === 'NotAllowedError'
+        ? 'Microphone permission denied. Please allow microphone access and try again.'
+        : 'Could not access the microphone. Check your device settings.';
+      setUploadError(msg);
+      return;
+    }
+
+    streamRef.current = stream;
+    audioChunksRef.current = [];
+
+    // Pick the best supported audio format
+    const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+      ? 'audio/webm;codecs=opus'
+      : MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : 'audio/ogg;codecs=opus';
+
+    recordingMimeRef.current = mimeType;
+
+    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+    mediaRecorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
+
+    mediaRecorderRef.current = mediaRecorder;
+    mediaRecorder.start(1000); // collect chunks every second
+    setIsPaused(false);
+    setElapsed(0);
+    setStatus('recording');
+    setUploadError('');
+  }
+
+  function handlePauseRecording() {
+    if (mediaRecorderRef.current?.state === 'recording') {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
+    }
+  }
+
+  function handleResumeRecording() {
+    if (mediaRecorderRef.current?.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+    }
+  }
+
+  async function handleStopRecording() {
+    if (!mediaRecorderRef.current) return;
+
+    const blob = await new Promise((resolve) => {
+      mediaRecorderRef.current.onstop = () => {
+        resolve(new Blob(audioChunksRef.current, { type: recordingMimeRef.current }));
+      };
+      mediaRecorderRef.current.stop();
+    });
+
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+    mediaRecorderRef.current = null;
+
+    await submitAudio(blob, recordingMimeRef.current);
+  }
+
+  // ── File upload ───────────────────────────────────────────────────────────
+  async function handleFileSelect(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = ''; // reset so the same file can be re-selected
+
+    await submitAudio(file, file.type);
+  }
+
+  // ── Submit audio to backend ───────────────────────────────────────────────
+  async function submitAudio(blob, mimetype) {
+    const sessionId = isNew ? activeSession?.id : session?.id;
+    if (!sessionId) {
+      setUploadError('Session not ready. Please refresh and try again.');
+      return;
+    }
+
+    setStatus('uploading');
+    setUploadError('');
+
+    try {
+      const formData = new FormData();
+      const ext = mimetype.startsWith('audio/webm') ? 'webm'
+                : mimetype.startsWith('audio/wav')  ? 'wav'
+                : mimetype.startsWith('audio/mpeg') ? 'mp3'
+                : 'audio';
+      formData.append('audio', blob, `session-${sessionId}.${ext}`);
+
+      await sessionsApi.uploadAudio(sessionId, formData);
+
+      setStatus('transcribing');
+      startPolling(sessionId);
+    } catch (err) {
+      setUploadError(err.message || 'Upload failed. Please try again.');
+      setStatus('choose');
+    }
+  }
+
+  // ── Session start ─────────────────────────────────────────────────────────
   async function handleStartSession() {
     if (isNew && patientId) {
-      // createNewSession from DataContext — updates global sessions list and returns the new session
       const newSession = await createNewSession({ patient_id: patientId });
       setActiveSession(newSession);
     }
-    setStatus('recording');
+    setStatus('choose');
+    setUploadError('');
   }
 
-  function handleStopRecording() {
-    setStatus('uploading');
-    setTimeout(() => {
-      setStatus('transcribing');
-      setTimeout(() => {
-        setStatus('generating');
-        setTimeout(() => {
-          setSoap({
-            subjective: "Patient arrived on time and appeared cooperative. Caregiver reports practicing /r/ words at home daily for 10 minutes. Patient expressed feeling 'better at saying words'.",
-            objective:  'Administered 20-item articulation probe for /r/ in initial, medial, and final word positions. Accuracy: initial 80%, medial 70%, final 65%. Fluency maintained throughout session.',
-            assessment: 'Patient is showing consistent progress in /r/ production across all word positions. Stimulability for /r/ blends has increased from 40% to 60% over last 3 sessions.',
-            plan:       'Continue targeting /r/ in blends at word level. Introduce phrase-level practice in next session. Home program: 10 minutes daily reading aloud using provided word list.',
-          });
-          setTranscript([
-            { speaker: 'Therapist', text: "Let's start our session. Can you say the 'R' words we practiced?", time: "0:01" },
-            { speaker: 'Patient',   text: "Rabbit. Red. Ring.",                                               time: "0:05" },
-            { speaker: 'Therapist', text: "Great job! Very clear. How did practice at home go?",              time: "0:10" },
-            { speaker: 'Caregiver', text: "We practiced 10 minutes every day. He's sounding much better.",   time: "0:15" },
-          ]);
-          setStatus('draft');
-        }, 2000);
-      }, 2000);
-    }, 1500);
+  // ── Mode selection ────────────────────────────────────────────────────────
+  async function handleChooseMode(mode) {
+    if (mode === 'record') {
+      await handleStartRecording();
+    } else {
+      fileInputRef.current?.click();
+    }
   }
 
+  // ── SOAP save / finalize ──────────────────────────────────────────────────
   async function handleSave() {
-    // Resolve which session ID to update (new vs. existing)
     const sessionId = isNew ? activeSession?.id : session?.id;
     if (!sessionId) return;
     await saveSOAP(sessionId, soap);
@@ -161,6 +320,7 @@ export default function Session() {
     handleSave();
   }
 
+  // ── Home practice ─────────────────────────────────────────────────────────
   async function handleAssignTasks() {
     const sessionId = isNew ? activeSession?.id : session?.id;
     if (!sessionId) return;
@@ -177,26 +337,36 @@ export default function Session() {
     }
   }
 
-  function addTaskField() {
-    setTasks(t => [...t, '']);
+  function addTaskField()            { setTasks(t => [...t, '']); }
+  function updateTask(idx, value)    { setTasks(t => t.map((task, i) => i === idx ? value : task)); }
+  function removeTask(idx)           { setTasks(t => t.length > 1 ? t.filter((_, i) => i !== idx) : ['']); }
+
+  function formatTime(s) {
+    const m   = Math.floor(s / 60).toString().padStart(2, '0');
+    const sec = (s % 60).toString().padStart(2, '0');
+    return `${m}:${sec}`;
   }
 
-  function updateTask(idx, value) {
-    setTasks(t => t.map((task, i) => i === idx ? value : task));
-  }
+  // ── Computed ──────────────────────────────────────────────────────────────
+  const displayPatient = sessionPatient;
+  const isProcessing   = ['uploading', 'transcribing', 'generating'].includes(status);
+  const isEditing      = status === 'draft';
+  const isFinalized    = status === 'finalized';
+  const existingTasks  = session?.home_practice_tasks ?? [];
 
-  function removeTask(idx) {
-    setTasks(t => t.length > 1 ? t.filter((_, i) => i !== idx) : ['']);
-  }
-
-  const displayPatient  = sessionPatient;
-  const isProcessing    = ['uploading', 'transcribing', 'generating'].includes(status);
-  const isEditing       = status === 'draft';
-  const isFinalized     = status === 'finalized';
-  const existingTasks = session?.home_practice_tasks ?? [];
-
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 page-enter pb-10">
+
+      {/* Hidden file input for audio upload */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="audio/webm,audio/wav,audio/wave,audio/mpeg,audio/mp3"
+        className="hidden"
+        onChange={handleFileSelect}
+      />
+
       {/* Breadcrumb */}
       <div className="flex items-center gap-2 text-sm">
         <Link
@@ -209,7 +379,7 @@ export default function Session() {
         <span className="text-slate-900 font-medium">Session Workspace</span>
       </div>
 
-      {/* Header */}
+      {/* Header card */}
       <div className="card p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3 mb-1">
@@ -226,22 +396,44 @@ export default function Session() {
         </div>
 
         <div className="flex items-center gap-3">
-          {status === 'idle' && (
+          {(status === 'idle' || status === 'loading') && (
             <Button variant="primary" size="md" onClick={handleStartSession}>
               <Mic className="w-4 h-4" /> Start Session
             </Button>
           )}
-          {status === 'recording' && (
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-100 text-red-700 text-sm font-bold animate-pulse">
-                <div className="w-2.5 h-2.5 rounded-full bg-red-500" />
-                {formatTime(elapsed)}
-              </div>
-              <Button variant="danger" size="md" onClick={handleStopRecording}>
-                <Square className="w-4 h-4 fill-current" /> Stop Recording
+
+          {status === 'choose' && (
+            <div className="flex items-center gap-3">
+              <Button variant="secondary" size="md" onClick={() => handleChooseMode('upload')}>
+                <UploadCloud className="w-4 h-4" /> Upload Audio
+              </Button>
+              <Button variant="primary" size="md" onClick={() => handleChooseMode('record')}>
+                <Mic className="w-4 h-4" /> Record Audio
               </Button>
             </div>
           )}
+
+          {status === 'recording' && (
+            <div className="flex items-center gap-4">
+              <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold ${isPaused ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700 animate-pulse'}`}>
+                <div className={`w-2.5 h-2.5 rounded-full ${isPaused ? 'bg-amber-500' : 'bg-red-500'}`} />
+                {isPaused ? 'Paused' : formatTime(elapsed)}
+              </div>
+              {isPaused ? (
+                <Button variant="secondary" size="md" onClick={handleResumeRecording}>
+                  <Play className="w-4 h-4" /> Resume
+                </Button>
+              ) : (
+                <Button variant="ghost" size="md" onClick={handlePauseRecording}>
+                  <Pause className="w-4 h-4" /> Pause
+                </Button>
+              )}
+              <Button variant="danger" size="md" onClick={handleStopRecording}>
+                <Square className="w-4 h-4 fill-current" /> Stop & Process
+              </Button>
+            </div>
+          )}
+
           {isEditing && (
             <>
               {saved && (
@@ -255,6 +447,7 @@ export default function Session() {
               </Button>
             </>
           )}
+
           {isFinalized && (
             <Button variant="secondary" size="md">
               <FileText className="w-4 h-4" /> Export PDF
@@ -263,8 +456,22 @@ export default function Session() {
         </div>
       </div>
 
-      {/* Target Goals (only in idle state) */}
-      {status === 'idle' && goals && goals.length > 0 && (
+      {/* Error banner */}
+      {uploadError && (
+        <div className="flex items-start gap-3 px-5 py-4 bg-red-50 border border-red-200 rounded-2xl text-red-700 text-sm animate-fade-in">
+          <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
+          <span className="flex-1">{uploadError}</span>
+          <button
+            onClick={() => setUploadError('')}
+            className="text-red-400 hover:text-red-600 flex-shrink-0 font-bold leading-none"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Target Goals (idle / choose) */}
+      {(status === 'idle' || status === 'choose') && goals && goals.length > 0 && (
         <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100 flex items-center gap-4">
           <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
             <Target className="w-5 h-5 text-indigo-600" />
@@ -282,11 +489,64 @@ export default function Session() {
         </div>
       )}
 
+      {/* Idle card — workspace not started */}
+      {status === 'idle' && (
+        <div className="card p-16 text-center mt-10">
+          <div className="w-20 h-20 rounded-3xl bg-brand-100 flex items-center justify-center mx-auto mb-4">
+            <Mic className="w-10 h-10 text-brand-600" />
+          </div>
+          <h3 className="text-xl font-bold text-slate-900 mb-2">Workspace Ready</h3>
+          <p className="text-slate-500 text-sm mb-6 max-w-sm mx-auto">
+            Click "Start Session" to begin. TalkAlign will transcribe the audio and automatically generate SOAP notes.
+          </p>
+          <Button variant="primary" size="lg" onClick={handleStartSession}>
+            <Mic className="w-5 h-5" /> Start Session
+          </Button>
+        </div>
+      )}
+
+      {/* Choose mode — record or upload */}
+      {status === 'choose' && (
+        <div className="card p-10 mt-10 animate-fade-in">
+          <h3 className="text-xl font-bold text-slate-900 text-center mb-2">How would you like to capture this session?</h3>
+          <p className="text-slate-500 text-sm text-center mb-8 max-w-sm mx-auto">
+            Record live with your microphone, or upload a pre-recorded audio file.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-4 max-w-lg mx-auto">
+            <button
+              onClick={() => handleChooseMode('record')}
+              className="flex flex-col items-center gap-3 p-8 rounded-2xl border-2 border-brand-200 hover:border-brand-400 hover:bg-brand-50/50 transition-all group"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-brand-100 flex items-center justify-center group-hover:bg-brand-200 transition-colors">
+                <Mic className="w-8 h-8 text-brand-600" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-slate-900">Record Audio</p>
+                <p className="text-xs text-slate-500 mt-1">Use your microphone</p>
+              </div>
+            </button>
+            <button
+              onClick={() => handleChooseMode('upload')}
+              className="flex flex-col items-center gap-3 p-8 rounded-2xl border-2 border-slate-200 hover:border-brand-400 hover:bg-brand-50/50 transition-all group"
+            >
+              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center group-hover:bg-brand-100 transition-colors">
+                <UploadCloud className="w-8 h-8 text-slate-500 group-hover:text-brand-600 transition-colors" />
+              </div>
+              <div className="text-center">
+                <p className="font-semibold text-slate-900">Upload Audio File</p>
+                <p className="text-xs text-slate-500 mt-1">WebM · WAV · MP3 — max 25 MB</p>
+              </div>
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Processing stepper */}
       {isProcessing && (
         <div className="card p-12 text-center animate-fade-in">
           <h3 className="text-xl font-bold text-slate-900 mb-6">Processing Session</h3>
           <StatusStepper status={status} />
+          <p className="text-slate-400 text-sm mt-6">This may take a minute. You can leave this page — the session will be ready when you return.</p>
         </div>
       )}
 
@@ -311,22 +571,32 @@ export default function Session() {
                     <div className="w-1/3 h-full bg-brand-500" />
                   </div>
                 </div>
-                <span className="text-xs font-mono text-slate-500">0:15 / 45:00</span>
+                <span className="text-xs font-mono text-slate-500">— / —</span>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6 space-y-4">
-              {transcript.map((t, i) => (
-                <div key={i} className={`flex flex-col ${t.speaker === 'Therapist' ? 'items-end' : 'items-start'}`}>
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-xs font-semibold text-slate-500">{t.speaker}</span>
-                    <span className="text-[10px] text-slate-400 font-mono">{t.time}</span>
-                  </div>
-                  <div className={`px-4 py-2 rounded-2xl text-sm max-w-[85%] ${t.speaker === 'Therapist' ? 'bg-brand-500 text-white rounded-tr-none' : 'bg-slate-100 text-slate-800 rounded-tl-none'}`}>
-                    {t.text}
-                  </div>
+            <div className="flex-1 overflow-y-auto p-6">
+              {rawTranscript ? (
+                /* Whisper plain-text transcript */
+                <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{rawTranscript}</p>
+              ) : transcript.length > 0 ? (
+                /* Legacy chat-bubble format */
+                <div className="space-y-4">
+                  {transcript.map((t, i) => (
+                    <div key={i} className={`flex flex-col ${t.speaker === 'Therapist' ? 'items-end' : 'items-start'}`}>
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-xs font-semibold text-slate-500">{t.speaker}</span>
+                        <span className="text-[10px] text-slate-400 font-mono">{t.time}</span>
+                      </div>
+                      <div className={`px-4 py-2 rounded-2xl text-sm max-w-[85%] ${t.speaker === 'Therapist' ? 'bg-brand-500 text-white rounded-tr-none' : 'bg-slate-100 text-slate-800 rounded-tl-none'}`}>
+                        {t.text}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              ) : (
+                <p className="text-sm text-slate-400 italic">Transcript will appear here after processing.</p>
+              )}
             </div>
           </div>
 
@@ -371,6 +641,20 @@ export default function Session() {
         </div>
       )}
 
+      {/* Parent Summary */}
+      {(isEditing || isFinalized) && parentSummary && (
+        <div className="card animate-fade-in">
+          <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2">
+            <MessageSquare className="w-5 h-5 text-teal-600" />
+            <h3 className="font-semibold text-slate-900">Parent / Caregiver Summary</h3>
+            <span className="ml-auto text-xs font-medium text-teal-700 bg-teal-50 px-2 py-1 rounded-full">AI Generated</span>
+          </div>
+          <div className="p-6">
+            <p className="text-sm text-slate-700 leading-relaxed">{parentSummary}</p>
+          </div>
+        </div>
+      )}
+
       {/* Home Practice Tasks */}
       {(isEditing || isFinalized) && (
         <div className="card animate-fade-in">
@@ -380,7 +664,6 @@ export default function Session() {
           </div>
           <div className="p-6 space-y-4">
 
-            {/* Already-assigned tasks */}
             {existingTasks.length > 0 && (
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Assigned Tasks</p>
@@ -396,7 +679,6 @@ export default function Session() {
               </div>
             )}
 
-            {/* Add new tasks — only while editing */}
             {isEditing && (
               <div className="space-y-3">
                 {existingTasks.length > 0 && (
@@ -448,21 +730,6 @@ export default function Session() {
         </div>
       )}
 
-      {/* Idle — not started yet */}
-      {status === 'idle' && (
-        <div className="card p-16 text-center mt-10">
-          <div className="w-20 h-20 rounded-3xl bg-brand-100 flex items-center justify-center mx-auto mb-4">
-            <Mic className="w-10 h-10 text-brand-600" />
-          </div>
-          <h3 className="text-xl font-bold text-slate-900 mb-2">Workspace Ready</h3>
-          <p className="text-slate-500 text-sm mb-6 max-w-sm mx-auto">
-            Click "Start Session" to begin recording. TalkAlign will transcribe the audio and automatically generate SOAP notes.
-          </p>
-          <Button variant="primary" size="lg" onClick={handleStartSession}>
-            <Mic className="w-5 h-5" /> Start Recording
-          </Button>
-        </div>
-      )}
     </div>
   );
 }

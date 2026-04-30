@@ -69,3 +69,18 @@ export async function assignHomePractice(sessionId, tasks) {
     body: JSON.stringify({ tasks }),
   });
 }
+
+// Multipart upload — do NOT use fetchWithAuth (it adds Content-Type: application/json)
+export async function uploadAudio(sessionId, formData) {
+  const token = getToken();
+  const res = await fetch(`${API_URL}/sessions/${sessionId}/audio`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    throw new Error(json.error?.message || 'Audio upload failed');
+  }
+  return json.data;
+}
