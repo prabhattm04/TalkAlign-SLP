@@ -144,3 +144,29 @@ export async function completeTask(req: Request, res: Response): Promise<void> {
     res.status(500).json(sendError("Internal server error"));
   }
 }
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/portal/goals
+// Fetch goals for caregiver's patients
+// ---------------------------------------------------------------------------
+export async function getPortalGoals(req: Request, res: Response): Promise<void> {
+  try {
+    const supabase = (req as any).supabase;
+
+    // Fetch goals where the associated patient's caregiver_id matches auth.uid()
+    // RLS policy on goals table (parent select) handles this securely.
+    const { data: goals, error } = await supabase
+      .from("goals")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      res.status(500).json(sendError("Failed to fetch goals"));
+      return;
+    }
+
+    res.status(200).json(sendSuccess(goals));
+  } catch (err: any) {
+    res.status(500).json(sendError("Internal server error"));
+  }
+}

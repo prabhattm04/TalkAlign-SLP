@@ -4,18 +4,21 @@ import * as portalApi from '../api/portal.js';
 export function usePortal() {
   const [data, setData] = useState({ caregiver: null, patients: [] });
   const [sessions, setSessions] = useState([]);
+  const [goals, setGoals] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const fetchPortalData = useCallback(async () => {
     try {
       setLoading(true);
-      const [meData, sessionsData] = await Promise.all([
+      const [meData, sessionsData, goalsData] = await Promise.all([
         portalApi.getMe(),
-        portalApi.getSessions()
+        portalApi.getSessions(),
+        portalApi.getGoals()
       ]);
       setData(meData);
       setSessions(sessionsData);
+      setGoals(goalsData || []);
       setError(null);
     } catch (err) {
       setError(err.message || 'Failed to load portal data');
@@ -50,6 +53,7 @@ export function usePortal() {
     caregiver: data.caregiver,
     patients: data.patients,
     sessions,
+    goals,
     loading,
     error,
     refetch: fetchPortalData,

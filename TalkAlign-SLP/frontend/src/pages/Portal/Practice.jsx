@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Award, CheckCircle2, Sparkles } from 'lucide-react';
+import { Award, CheckCircle2, Sparkles, Target, Activity, Calendar } from 'lucide-react';
 import { usePortal } from '../../hooks/usePortal.js';
 
 export default function PortalPractice() {
-  const { sessions, loading, toggleTask: apiToggleTask } = usePortal();
+  const { sessions, goals, loading, toggleTask: apiToggleTask } = usePortal();
   const [tasks, setTasks] = useState([]);
   const [showConfetti, setShowConfetti] = useState(false);
 
@@ -12,7 +12,10 @@ export default function PortalPractice() {
       // Gather all home practice tasks from completed sessions
       const allTasks = sessions
         .filter(s => s.status === 'completed' && s.homePractice)
-        .flatMap(s => s.homePractice);
+        .flatMap(s => s.homePractice.map(t => ({
+          ...t,
+          sessionDate: s.date
+        })));
       setTasks(allTasks);
     }
   }, [sessions]);
@@ -67,8 +70,49 @@ export default function PortalPractice() {
         <p className="text-slate-500 mt-1">Consistency is key! Complete these activities with your child.</p>
       </div>
 
-      {/* Active Tasks */}
+      {/* Therapy Goals Section */}
       <section className="space-y-4">
+        <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <Target className="w-5 h-5 text-indigo-500" />
+          Therapy Goals <span className="text-sm font-medium bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{goals?.length || 0}</span>
+        </h2>
+        <p className="text-sm text-slate-500">Long-term targets and milestones set by your therapist.</p>
+        
+        {(!goals || goals.length === 0) ? (
+          <div className="bg-white rounded-3xl p-6 text-center border border-slate-100 shadow-soft">
+            <p className="text-slate-500">No active goals set yet.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {goals.map((goal) => {
+              const isAchieved = goal.status === 'achieved';
+              return (
+                <div key={goal.id} className="bg-white p-5 rounded-3xl border border-indigo-100 shadow-soft relative overflow-hidden">
+                  {isAchieved && <div className="absolute top-0 right-0 bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg">ACHIEVED</div>}
+                  <div className="flex items-start gap-4">
+                    <div className={`mt-1 w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0 ${isAchieved ? 'bg-emerald-100 text-emerald-600' : 'bg-indigo-50 text-indigo-500'}`}>
+                      {isAchieved ? <CheckCircle2 className="w-5 h-5" /> : <Activity className="w-5 h-5" />}
+                    </div>
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-400">{goal.type?.replace('_', '-')}</span>
+                        <span className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                          <Calendar className="w-3 h-3" /> {new Date(goal.created_at).toLocaleDateString()}
+                        </span>
+                      </div>
+                      <h3 className={`font-bold leading-snug ${isAchieved ? 'text-slate-500' : 'text-slate-800'}`}>{goal.title}</h3>
+                      {goal.target && <p className="text-sm text-slate-500 mt-1"><strong>Target:</strong> {goal.target}</p>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {/* Active Tasks */}
+      <section className="space-y-4 mt-10">
         <h2 className="text-lg font-bold text-slate-800 flex items-center gap-2">
           To Do <span className="text-sm font-medium bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">{activeTasks.length}</span>
         </h2>
@@ -86,7 +130,12 @@ export default function PortalPractice() {
                 className="flex items-center gap-4 bg-white p-5 rounded-3xl border border-orange-100 shadow-soft cursor-pointer hover:border-orange-300 transition-all group"
               >
                 <div className="w-8 h-8 rounded-full border-2 border-slate-300 flex items-center justify-center flex-shrink-0 group-hover:border-orange-400 transition-colors" />
-                <p className="text-slate-700 font-medium flex-1">{task.title}</p>
+                <div className="flex-1">
+                  <p className="text-slate-700 font-medium">{task.title}</p>
+                  <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                    <Calendar className="w-3 h-3" /> Assigned: {new Date(task.sessionDate).toLocaleDateString()}
+                  </p>
+                </div>
               </div>
             ))}
           </div>
@@ -107,7 +156,12 @@ export default function PortalPractice() {
                 <div className="w-8 h-8 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
                   <CheckCircle2 className="w-5 h-5 text-white" />
                 </div>
-                <p className="text-slate-500 font-medium line-through flex-1">{task.title}</p>
+                <div className="flex-1">
+                  <p className="text-slate-500 font-medium line-through">{task.title}</p>
+                  <p className="text-xs text-slate-400 mt-1 flex items-center gap-1">
+                    <Calendar className="w-3 h-3" /> Assigned: {new Date(task.sessionDate).toLocaleDateString()}
+                  </p>
+                </div>
               </div>
             ))}
           </div>

@@ -8,7 +8,8 @@ import {
   saveSoap,
   assignTasks,
   endSession,
-  deleteSession
+  deleteSession,
+  getAudioUrl,
 } from "../controllers/sessions.controller";
 import { uploadAudioHandler } from "../controllers/audio.controller";
 import { createSessionSchema, saveSoapSchema, assignTasksSchema, endSessionSchema } from "../schemas/session.schema";
@@ -21,6 +22,7 @@ router.use(authenticate, requireRole("doctor"));
 
 router.get("/", getSessions);
 router.get("/:id", getSession);
+router.get("/:id/audio-url", getAudioUrl);
 router.post("/", validate(createSessionSchema, "body"), createSession);
 router.post("/:id/soap", validate(saveSoapSchema, "body"), saveSoap);
 router.post("/:id/home-practice", validate(assignTasksSchema, "body"), assignTasks);

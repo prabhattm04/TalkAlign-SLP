@@ -1,15 +1,17 @@
 import { useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Phone, User2, Mic2, CalendarDays, FileText, ChevronRight, Stethoscope, Edit3, X, Clock, Trash2 } from 'lucide-react';
+import { ArrowLeft, Phone, User2, Mic2, CalendarDays, FileText, ChevronRight, Stethoscope, Edit3, X, Clock, Trash2, AlertCircle } from 'lucide-react';
 import { usePatient, usePatients } from '../../hooks/usePatients.js';
 import { useSessions } from '../../hooks/useSessions.js';
 import { formatDate } from '../../utils/helpers.js';
 import Badge from '../../components/ui/Badge.jsx';
 import Button from '../../components/ui/Button.jsx';
 import Input from '../../components/ui/Input.jsx';
+import AudioPlayer from '../../components/ui/AudioPlayer.jsx';
 import TherapyPlanWorkspace from '../../components/patient/TherapyPlanWorkspace.jsx';
 
 const INTEREST_TAGS = ['Dinosaurs', 'Space', 'Cars', 'Animals', 'Art', 'Music', 'Sports', 'Video Games'];
+
 
 function EditPatientModal({ patient, onClose, onSave }) {
   const [form, setForm] = useState({
@@ -211,21 +213,32 @@ export default function PatientDetail() {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showScheduleModal, setShowScheduleModal] = useState(false);
   const [expandedSessionId, setExpandedSessionId] = useState(null);
+  const [showDeleteSessionModal, setShowDeleteSessionModal] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState(null);
 
   // Filter sessions
   const sessions = allSessions.filter(s => s.patient_id === id);
   const upcomingSessions = sessions.filter(s => s.status === 'scheduled' && new Date(s.date) > new Date()).sort((a,b) => new Date(a.date) - new Date(b.date));
+  // Session History = only sessions that have been done (not scheduled)
+  const historyStatuses = ['completed', 'draft', 'processing', 'in_progress', 'error'];
+  const historySessions = sessions.filter(s => historyStatuses.includes(s.status)).sort((a, b) => new Date(b.date) - new Date(a.date));
 
-  const handleDeleteSession = async (e, sessionId) => {
+  const handleDeleteSessionClick = (e, sessionId) => {
     e.stopPropagation();
-    if (window.confirm("Are you sure you want to delete this session? This action cannot be undone.")) {
-      try {
-        await deleteSession(sessionId);
-      } catch (err) {
-        console.error("Failed to delete session:", err);
-        alert(err.message || "Failed to delete session");
-      }
+    setSessionToDelete(sessionId);
+    setShowDeleteSessionModal(true);
+  };
+
+  const confirmDeleteSession = async () => {
+    if (!sessionToDelete) return;
+    try {
+      await deleteSession(sessionToDelete);
+    } catch (err) {
+      console.error("Failed to delete session:", err);
+      alert(err.message || "Failed to delete session");
     }
+    setShowDeleteSessionModal(false);
+    setSessionToDelete(null);
   };
 
   const tabs = [
@@ -419,20 +432,19 @@ export default function PatientDetail() {
           <div className="card animate-fade-in">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-semibold text-slate-900">Session History</h3>
-              <span className="text-xs text-slate-400">{sessions.length} total sessions</span>
+              <span className="text-xs text-slate-400">{historySessions.length} session{historySessions.length !== 1 ? 's' : ''}</span>
             </div>
             <div className="divide-y divide-slate-100">
               {sLoad ? (
                 <div className="p-12 text-center text-slate-400 text-sm">Loading sessions…</div>
-              ) : sessions.length === 0 ? (
+              ) : historySessions.length === 0 ? (
                 <div className="p-12 text-center">
                   <Mic2 className="w-10 h-10 text-slate-200 mx-auto mb-3" />
                   <p className="text-slate-500 text-sm font-medium">No sessions yet</p>
                   <p className="text-slate-400 text-xs mt-1">Start a new session to begin recording progress.</p>
                 </div>
               ) : (
-                [...sessions]
-                  .sort((a, b) => new Date(b.date) - new Date(a.date))
+                [...historySessions]
                   .map((s) => {
                     const isExpanded = expandedSessionId === s.id;
                     return (
@@ -447,7 +459,8 @@ export default function PatientDetail() {
                           </div>
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 mb-1">
-                              <p className="text-sm font-semibold text-slate-900">{formatDate(s.date)}</p>
+                              <p className="text-sm font-semibold text-slate-900">{s.title || formatDate(s.date)}</p>
+                              {s.title && <span className="text-xs text-slate-400 font-medium hidden sm:inline">{formatDate(s.date)}</span>}
                               <Badge status={s.status}>{s.status}</Badge>
                             </div>
                             <p className="text-xs text-slate-500 truncate">{s.summary || 'No summary available'}</p>
@@ -461,7 +474,7 @@ export default function PatientDetail() {
                             </Button>
                           </Link>
                           <button 
-                            onClick={(e) => handleDeleteSession(e, s.id)}
+                            onClick={(e) => handleDeleteSessionClick(e, s.id)}
                             className="p-2 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
                             title="Delete Session"
                           >
@@ -475,14 +488,17 @@ export default function PatientDetail() {
                           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-4">
                             {/* Left Col: Audio & Transcript */}
                             <div className="space-y-4">
-                              {s.audio_file_path && (
-                                <div className="card p-4">
-                                  <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Audio Recording</h4>
-                                  <audio controls className="w-full h-10" src={s.audio_file_path}>
-                                    Your browser does not support the audio element.
-                                  </audio>
-                                </div>
-                              )}
+                              <div className="card p-4">
+                                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Audio Recording</h4>
+                                {s.status === 'processing' ? (
+                                  <div className="flex items-center gap-2 text-amber-600 bg-amber-50 rounded-lg px-3 py-2">
+                                    <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                                    <span className="text-xs font-medium">Transcription in progress…</span>
+                                  </div>
+                                ) : (
+                                  <AudioPlayer sessionId={s.id} />
+                                )}
+                              </div>
                               
                               <div className="card p-4">
                                 <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Transcript</h4>
@@ -544,7 +560,7 @@ export default function PatientDetail() {
         )}
 
         {activeTab === 'therapy-plan' && (
-          <TherapyPlanWorkspace patientId={id} />
+          <TherapyPlanWorkspace patientId={patient.id} sessions={sessions} />
         )}
 
         {activeTab === 'documents' && (
@@ -564,6 +580,25 @@ export default function PatientDetail() {
       )}
       {showScheduleModal && (
         <ScheduleSessionModal patientId={patient.id} onClose={() => setShowScheduleModal(false)} onSchedule={createSession} />
+      )}
+
+      {/* Delete Session Confirmation Modal */}
+      {showDeleteSessionModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-6 overflow-hidden animate-fade-in text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Session?</h3>
+            <p className="text-slate-500 mb-6">
+              Are you sure you want to permanently delete this session? This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <Button variant="secondary" onClick={() => { setShowDeleteSessionModal(false); setSessionToDelete(null); }}>Cancel</Button>
+              <Button variant="danger" onClick={confirmDeleteSession}>Delete Session</Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

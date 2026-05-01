@@ -90,6 +90,7 @@ export async function saveSoap(req: Request, res: Response): Promise<void> {
   const { data, error } = await supabase
     .from("sessions")
     .update({
+      title: soap.title,
       soap_subjective: soap.subjective,
       soap_objective: soap.objective,
       soap_assessment: soap.assessment,
@@ -180,4 +181,33 @@ export async function deleteSession(req: Request, res: Response): Promise<void> 
   }
 
   res.status(200).json(sendSuccess({ message: "Session deleted successfully" }));
+}
+
+export async function getAudioUrl(req: Request, res: Response): Promise<void> {
+  const supabase = req.supabase!;
+  const { createAdminClient } = require("../config/supabase");
+  const admin = createAdminClient();
+  const { id } = req.params;
+
+  const { data: session, error } = await supabase
+    .from("sessions")
+    .select("audio_file_path")
+    .eq("id", id)
+    .single();
+
+  if (error || !session || !session.audio_file_path) {
+    res.status(404).json(sendError("Audio file not found"));
+    return;
+  }
+
+  const { data: urlData, error: urlError } = await admin.storage
+    .from("session-audio")
+    .createSignedUrl(session.audio_file_path, 3600);
+
+  if (urlError || !urlData) {
+    res.status(500).json(sendError("Failed to generate audio URL"));
+    return;
+  }
+
+  res.status(200).json(sendSuccess({ url: urlData.signedUrl }));
 }

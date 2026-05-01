@@ -3,7 +3,7 @@ import { useParams, useSearchParams, Link, useNavigate } from 'react-router-dom'
 import {
   ArrowLeft, Mic, Square, CheckCircle2,
   Wand2, FileText, Lock, UploadCloud, MessageSquare, PlayCircle, Target,
-  Plus, Trash2, ClipboardList, Pause, Play, AlertCircle,
+  Plus, Trash2, ClipboardList, Pause, Play, AlertCircle, StopCircle, Radio,
 } from 'lucide-react';
 import { useSession, useSessions } from '../../hooks/useSessions.js';
 import { usePatient } from '../../hooks/usePatients.js';
@@ -12,6 +12,7 @@ import { formatDate } from '../../utils/helpers.js';
 import * as sessionsApi from '../../api/sessions.js';
 import Button from '../../components/ui/Button.jsx';
 import Badge from '../../components/ui/Badge.jsx';
+import AudioPlayer from '../../components/ui/AudioPlayer.jsx';
 
 const SOAP_FIELDS = [
   { key: 'subjective', label: 'S — Subjective', placeholder: "Patient's and caregiver's report...", color: 'border-brand-300 focus:ring-brand-400' },
@@ -72,7 +73,7 @@ export default function Session() {
   const [elapsed, setElapsed]         = useState(0);
   const [isSessionPaused, setIsSessionPaused] = useState(false);
   const [isPaused, setIsPaused]       = useState(false);
-  const [soap, setSoap]               = useState({ subjective: '', objective: '', assessment: '', plan: '' });
+  const [soap, setSoap]               = useState({ title: '', subjective: '', objective: '', assessment: '', plan: '' });
   const [rawTranscript, setRawTranscript] = useState('');
   const [transcript]                  = useState([]);  // legacy chat-bubble format (populated for old sessions)
   const [parentSummary, setParentSummary] = useState('');
@@ -83,6 +84,7 @@ export default function Session() {
   const [tasks, setTasks]             = useState(['']);
   const [tasksSaving, setTasksSaving] = useState(false);
   const [tasksSaved, setTasksSaved]   = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   // ── Refs ─────────────────────────────────────────────────────────────────
   const timerRef        = useRef(null);
@@ -117,6 +119,7 @@ export default function Session() {
 
   function applySessionData(s) {
     setSoap({
+      title:      s.title || '',
       subjective: s.soap_subjective || '',
       objective:  s.soap_objective  || '',
       assessment: s.soap_assessment || '',
@@ -158,6 +161,7 @@ export default function Session() {
           pollingRef.current = null;
 
           setSoap({
+            title:      data.title || '',
             subjective: data.soap_subjective || '',
             objective:  data.soap_objective  || '',
             assessment: data.soap_assessment || '',
@@ -262,18 +266,26 @@ export default function Session() {
     await submitAudio(file, file.type);
   }
 
-  // ── Submit audio to backend ───────────────────────────────────────────────
+  // ── Submit audio to backend (creates session here for new sessions) ────────
   async function submitAudio(blob, mimetype) {
-    const sessionId = isNew ? activeSession?.id : session?.id;
-    if (!sessionId) {
-      setUploadError('Session not ready. Please refresh and try again.');
-      return;
-    }
-
     setStatus('uploading');
     setUploadError('');
 
     try {
+      let sessionId = isNew ? activeSession?.id : session?.id;
+
+      // Deferred creation: create session in DB only when audio is ready
+      if (!sessionId && isNew && patientId) {
+        const newSession = await createNewSession({ patient_id: patientId });
+        setActiveSession(newSession);
+        sessionId = newSession.id;
+      }
+
+      if (!sessionId) {
+        setUploadError('Session not ready. Please refresh and try again.');
+        return;
+      }
+
       const formData = new FormData();
       const ext = mimetype.startsWith('audio/webm') ? 'webm'
                 : mimetype.startsWith('audio/wav')  ? 'wav'
@@ -287,27 +299,21 @@ export default function Session() {
       startPolling(sessionId);
     } catch (err) {
       setUploadError(err.message || 'Upload failed. Please try again.');
-      setStatus('choose');
+      setStatus('recording');
     }
   }
 
-  // ── Session start ─────────────────────────────────────────────────────────
+  // ── Session start — no DB write yet ─────────────────────────────────────
   async function handleStartSession() {
-    if (isNew && patientId) {
-      const newSession = await createNewSession({ patient_id: patientId });
-      setActiveSession(newSession);
-    }
-    setStatus('choose');
+    setStatus('recording');
+    setElapsed(0);
     setUploadError('');
+    await handleStartRecording();
   }
 
-  // ── Mode selection ────────────────────────────────────────────────────────
-  async function handleChooseMode(mode) {
-    if (mode === 'record') {
-      await handleStartRecording();
-    } else {
-      fileInputRef.current?.click();
-    }
+  // ── Mode selection (upload only, record is direct now) ───────────────────
+  async function handleChooseUpload() {
+    fileInputRef.current?.click();
   }
 
   // ── SOAP save / finalize ──────────────────────────────────────────────────
@@ -320,8 +326,10 @@ export default function Session() {
   }
 
   async function handleFinalize() {
+    const sessionId = isNew ? activeSession?.id : session?.id;
+    if (!sessionId) return;
     setStatus('finalized');
-    await handleSave();
+    await saveSOAP(sessionId, soap);
   }
 
   async function handleEndSession() {
@@ -356,19 +364,29 @@ export default function Session() {
   }
 
   async function handleCancelSession() {
-    if (window.confirm("Are you sure you want to cancel this session? It will be deleted permanently.")) {
-      const sessionId = isNew ? activeSession?.id : session?.id;
-      if (sessionId) {
-        try {
-          await deleteSession(sessionId);
-        } catch (err) {
-          console.error(err);
-          setUploadError(err.message || 'Failed to cancel session');
-          return;
-        }
-      }
+    // Only show delete modal if a session was actually created in the DB
+    const sessionId = isNew ? activeSession?.id : session?.id;
+    if (sessionId) {
+      setShowDeleteModal(true);
+    } else {
       navigate(displayPatient ? `/dashboard/patients/${displayPatient.id}` : '/dashboard/sessions');
     }
+  }
+
+  async function confirmDeleteSession() {
+    const sessionId = isNew ? activeSession?.id : session?.id;
+    if (sessionId) {
+      try {
+        await deleteSession(sessionId);
+      } catch (err) {
+        console.error(err);
+        setUploadError(err.message || 'Failed to cancel session');
+        setShowDeleteModal(false);
+        return;
+      }
+    }
+    setShowDeleteModal(false);
+    navigate(displayPatient ? `/dashboard/patients/${displayPatient.id}` : '/dashboard/sessions');
   }
 
   // ── Home practice ─────────────────────────────────────────────────────────
@@ -401,9 +419,11 @@ export default function Session() {
   // ── Computed ──────────────────────────────────────────────────────────────
   const displayPatient = sessionPatient;
   const isProcessing   = ['uploading', 'transcribing', 'generating'].includes(status);
+  const isRecording    = status === 'recording';
   const isEditing      = status === 'draft';
   const isFinalized    = status === 'finalized';
   const existingTasks  = session?.home_practice_tasks ?? [];
+  const activeSessionId = isNew ? activeSession?.id : session?.id;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -446,16 +466,22 @@ export default function Session() {
           )}
         </div>
 
-        <div className="flex items-center gap-3">
-          {/* Display Session Timer if active */}
-          {['choose', 'recording', 'uploading', 'transcribing', 'generating', 'draft'].includes(status) && (
-            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold border ${isSessionPaused ? 'bg-amber-100 text-amber-700 border-amber-200' : 'bg-slate-100 text-slate-700 border-slate-200'} mr-2`}>
-              <div className={`w-2.5 h-2.5 rounded-full ${isSessionPaused ? 'bg-amber-500' : 'bg-green-500'}`} />
+        <div className="flex items-center gap-3 flex-wrap">
+
+          {/* Timer chip */}
+          {['recording', 'uploading', 'transcribing', 'generating', 'draft'].includes(status) && (
+            <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold border ${
+              isSessionPaused ? 'bg-amber-100 text-amber-700 border-amber-200'
+              : isRecording ? 'bg-red-50 text-red-700 border-red-200'
+              : 'bg-slate-100 text-slate-700 border-slate-200'
+            } mr-2`}>
+              <div className={`w-2.5 h-2.5 rounded-full ${isSessionPaused ? 'bg-amber-500' : isRecording ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`} />
               {isSessionPaused ? 'Paused' : formatTime(elapsed)}
             </div>
           )}
 
-          {['choose', 'recording'].includes(status) && (
+          {/* Recording controls */}
+          {isRecording && (
             <>
               {isSessionPaused ? (
                 <Button variant="secondary" size="md" onClick={handleResumeSession}>
@@ -466,24 +492,16 @@ export default function Session() {
                   <Pause className="w-4 h-4" /> Pause
                 </Button>
               )}
-              <Button variant="ghost" size="md" onClick={handleCancelSession} className="text-red-500 hover:text-red-600 hover:bg-red-50">
+              <Button variant="danger" size="md" onClick={handleStopRecording}>
+                <Square className="w-4 h-4 fill-current" /> Stop &amp; Process
+              </Button>
+              <Button variant="ghost" size="md" onClick={handleCancelSession} className="text-slate-500 hover:text-red-600 hover:bg-red-50">
                 Cancel
               </Button>
             </>
           )}
 
-          {status === 'choose' && (
-            <Button variant="danger" size="md" onClick={handleEndSession}>
-              <Square className="w-4 h-4" /> End Session
-            </Button>
-          )}
-
-          {status === 'recording' && (
-            <Button variant="danger" size="md" onClick={handleStopRecording}>
-              <Square className="w-4 h-4 fill-current" /> Stop & Process
-            </Button>
-          )}
-
+          {/* Draft / Finalize controls */}
           {isEditing && (
             <>
               {saved && (
@@ -492,8 +510,8 @@ export default function Session() {
                 </span>
               )}
               <Button variant="secondary" size="md" onClick={handleSave}>Save Draft</Button>
-              <Button variant="primary" size="md" onClick={handleEndSession}>
-                <Lock className="w-4 h-4" /> End Session & Finalize
+              <Button variant="primary" size="md" onClick={handleFinalize}>
+                <Lock className="w-4 h-4" /> Finalize Session
               </Button>
             </>
           )}
@@ -520,73 +538,46 @@ export default function Session() {
         </div>
       )}
 
-      {/* Target Goals (idle / choose) */}
-      {(status === 'idle' || status === 'choose') && goals && goals.length > 0 && (
-        <div className="bg-indigo-50/50 p-4 rounded-2xl border border-indigo-100 flex items-center gap-4">
-          <div className="w-10 h-10 rounded-full bg-indigo-100 flex items-center justify-center flex-shrink-0">
-            <Target className="w-5 h-5 text-indigo-600" />
-          </div>
-          <div>
-            <h4 className="text-sm font-bold text-indigo-900">Targeted Goals for Today</h4>
-            <div className="flex gap-2 mt-1 flex-wrap">
-              {goals.map((g, i) => (
-                <span key={i} className="text-xs bg-white px-2 py-1 rounded-md border border-indigo-100 text-indigo-700 font-medium">
-                  {g.title}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Idle card — workspace not started */}
+      {/* Idle card */}
       {status === 'idle' && (
-        <div className="card p-16 text-center mt-10">
-          <div className="w-20 h-20 rounded-3xl bg-brand-100 flex items-center justify-center mx-auto mb-4">
-            <Mic className="w-10 h-10 text-brand-600" />
-          </div>
-          <h3 className="text-xl font-bold text-slate-900 mb-2">Workspace Ready</h3>
-          <p className="text-slate-500 text-sm mb-6 max-w-sm mx-auto">
-            Click "Start Session" to begin. TalkAlign will transcribe the audio and automatically generate SOAP notes.
-          </p>
-          <Button variant="primary" size="lg" onClick={handleStartSession}>
-            <Mic className="w-5 h-5" /> Start Session
-          </Button>
-        </div>
-      )}
+        <div className="card p-12 mt-6 animate-fade-in">
+          <div className="max-w-lg mx-auto">
+            {/* Patient goals sidebar */}
+            {goals && goals.length > 0 && (
+              <div className="mb-8 bg-indigo-50/70 p-4 rounded-2xl border border-indigo-100">
+                <div className="flex items-center gap-2 mb-3">
+                  <Target className="w-4 h-4 text-indigo-600" />
+                  <h4 className="text-sm font-bold text-indigo-900">Therapy Goals for This Patient</h4>
+                </div>
+                <div className="flex gap-2 flex-wrap">
+                  {goals.map((g, i) => (
+                    <span key={i} className="text-xs bg-white px-2 py-1 rounded-md border border-indigo-100 text-indigo-700 font-medium">
+                      {g.title}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
-      {/* Choose mode — record or upload */}
-      {status === 'choose' && (
-        <div className="card p-10 mt-10 animate-fade-in">
-          <h3 className="text-xl font-bold text-slate-900 text-center mb-2">How would you like to capture this session?</h3>
-          <p className="text-slate-500 text-sm text-center mb-8 max-w-sm mx-auto">
-            Record live with your microphone, or upload a pre-recorded audio file.
-          </p>
-          <div className="grid sm:grid-cols-2 gap-4 max-w-lg mx-auto">
-            <button
-              onClick={() => handleChooseMode('record')}
-              className="flex flex-col items-center gap-3 p-8 rounded-2xl border-2 border-brand-200 hover:border-brand-400 hover:bg-brand-50/50 transition-all group"
-            >
-              <div className="w-16 h-16 rounded-2xl bg-brand-100 flex items-center justify-center group-hover:bg-brand-200 transition-colors">
-                <Mic className="w-8 h-8 text-brand-600" />
+            <div className="text-center">
+              <div className="w-20 h-20 rounded-3xl bg-brand-100 flex items-center justify-center mx-auto mb-4">
+                <Mic className="w-10 h-10 text-brand-600" />
               </div>
-              <div className="text-center">
-                <p className="font-semibold text-slate-900">Record Audio</p>
-                <p className="text-xs text-slate-500 mt-1">Use your microphone</p>
+              <h3 className="text-xl font-bold text-slate-900 mb-2">Ready to Start</h3>
+              <p className="text-slate-500 text-sm mb-8 max-w-sm mx-auto">
+                Click <strong>Start Recording</strong> to begin. TalkAlign will record live audio, then automatically transcribe it and generate SOAP notes.
+                <br /><br />
+                Prefer to upload an existing file? Use the button below.
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                <Button variant="primary" size="lg" onClick={handleStartSession}>
+                  <Mic className="w-5 h-5" /> Start Recording
+                </Button>
+                <Button variant="secondary" size="lg" onClick={handleChooseUpload}>
+                  <UploadCloud className="w-5 h-5" /> Upload Audio File
+                </Button>
               </div>
-            </button>
-            <button
-              onClick={() => handleChooseMode('upload')}
-              className="flex flex-col items-center gap-3 p-8 rounded-2xl border-2 border-slate-200 hover:border-brand-400 hover:bg-brand-50/50 transition-all group"
-            >
-              <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center group-hover:bg-brand-100 transition-colors">
-                <UploadCloud className="w-8 h-8 text-slate-500 group-hover:text-brand-600 transition-colors" />
-              </div>
-              <div className="text-center">
-                <p className="font-semibold text-slate-900">Upload Audio File</p>
-                <p className="text-xs text-slate-500 mt-1">WebM · WAV · MP3 — max 25 MB</p>
-              </div>
-            </button>
+            </div>
           </div>
         </div>
       )}
@@ -600,29 +591,46 @@ export default function Session() {
         </div>
       )}
 
+      {/* Recording live card */}
+      {isRecording && (
+        <div className="card p-10 mt-6 animate-fade-in">
+          <div className="flex flex-col items-center gap-6">
+            {/* Animated mic */}
+            <div className="relative">
+              <div className="w-24 h-24 rounded-full bg-red-100 flex items-center justify-center">
+                <Mic className="w-12 h-12 text-red-600" />
+              </div>
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500 animate-ping" />
+              <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-red-500" />
+            </div>
+
+            <div className="text-center">
+              <h3 className="text-2xl font-bold text-slate-900 font-mono">{formatTime(elapsed)}</h3>
+              <p className="text-slate-500 mt-1">
+                {isSessionPaused ? '⏸ Session paused' : '🔴 Recording in progress…'}
+              </p>
+            </div>
+
+            <p className="text-xs text-slate-400 text-center max-w-sm">
+              Click <strong>Stop &amp; Process</strong> when done. TalkAlign will transcribe the audio and generate SOAP notes automatically.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Transcript + SOAP split pane */}
       {(isEditing || isFinalized) && (
         <div className="grid lg:grid-cols-2 gap-6 animate-fade-in">
 
-          {/* LEFT: Transcript */}
-          <div className="card flex flex-col h-[600px]">
+          {/* LEFT: Audio + Transcript */}
+          <div className="card flex flex-col h-[640px]">
             <div className="px-6 py-4 border-b border-slate-100 flex items-center gap-2 bg-slate-50/50 rounded-t-3xl">
               <MessageSquare className="w-5 h-5 text-brand-600" />
-              <h3 className="font-semibold text-slate-900">Audio & Transcript</h3>
+              <h3 className="font-semibold text-slate-900">Audio &amp; Transcript</h3>
             </div>
 
             <div className="p-4 border-b border-slate-100 bg-white">
-              <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-2xl border border-slate-100">
-                <button className="text-brand-600 hover:text-brand-700 transition-colors">
-                  <PlayCircle className="w-8 h-8" />
-                </button>
-                <div className="flex-1">
-                  <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-                    <div className="w-1/3 h-full bg-brand-500" />
-                  </div>
-                </div>
-                <span className="text-xs font-mono text-slate-500">— / —</span>
-              </div>
+              <AudioPlayer sessionId={activeSessionId} />
             </div>
 
             <div className="flex-1 overflow-y-auto p-6">
@@ -664,6 +672,28 @@ export default function Session() {
               )}
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              
+              {/* Session Title */}
+              <div>
+                <label className="form-label flex items-center gap-2 mb-2">
+                  <span className="w-2 h-2 rounded-full bg-slate-400 inline-block" />
+                  <span className="font-semibold text-slate-800">Session Title</span>
+                </label>
+                {isFinalized ? (
+                  <div className="p-4 bg-slate-50 rounded-2xl text-sm text-slate-700 leading-relaxed border border-slate-100 font-bold">
+                    {soap.title || <span className="text-slate-400 italic font-normal">Not recorded</span>}
+                  </div>
+                ) : (
+                  <input
+                    type="text"
+                    className="w-full px-4 py-3 rounded-2xl border bg-white/50 text-slate-900 text-sm font-bold transition-all focus:outline-none focus:ring-2 focus:border-transparent border-slate-300 focus:ring-slate-400"
+                    placeholder="E.g. Articulation Therapy - Progress Check"
+                    value={soap.title}
+                    onChange={e => setSoap(s => ({ ...s, title: e.target.value }))}
+                  />
+                )}
+              </div>
+
               {SOAP_FIELDS.map(({ key, label, placeholder, color }) => (
                 <div key={key}>
                   <label className="form-label flex items-center gap-2 mb-2">
@@ -776,6 +806,25 @@ export default function Session() {
             {isFinalized && existingTasks.length === 0 && (
               <p className="text-sm text-slate-400">No home practice tasks were assigned for this session.</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md p-6 overflow-hidden animate-fade-in text-center">
+            <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-600" />
+            </div>
+            <h3 className="text-xl font-bold text-slate-900 mb-2">Delete Session?</h3>
+            <p className="text-slate-500 mb-6">
+              Are you sure you want to permanently delete this session? This action cannot be undone.
+            </p>
+            <div className="flex gap-3 justify-center">
+              <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>Cancel</Button>
+              <Button variant="danger" onClick={confirmDeleteSession}>Delete Session</Button>
+            </div>
           </div>
         </div>
       )}

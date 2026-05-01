@@ -35,10 +35,19 @@ export default function Login() {
     setFieldErrors({});
     try {
       const result = await login({ email: form.email, password: form.password });
-      let defaultDestination = '/dashboard';
-      if (result.user.role === 'parent') defaultDestination = '/portal/home';
       
-      const destination = location.state?.from?.pathname || defaultDestination;
+      // Determine authoritative destination based on role
+      const isParent = result.user.role === 'parent';
+      const roleDestination = isParent ? '/portal/home' : '/dashboard';
+      
+      // Only use "from" redirect if it's compatible with the user's role
+      const fromPath = location.state?.from?.pathname;
+      const isFromCompatible = fromPath && (
+        (isParent && fromPath.startsWith('/portal')) || 
+        (!isParent && !fromPath.startsWith('/portal'))
+      );
+
+      const destination = isFromCompatible ? fromPath : roleDestination;
       navigate(destination, { replace: true });
     } catch {
       // error displayed via context

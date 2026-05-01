@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Search, UserRound, ChevronRight, X } from 'lucide-react';
+import { Plus, Search, UserRound, ChevronRight, X, Trash2, AlertTriangle } from 'lucide-react';
 import { usePatients } from '../../hooks/usePatients.js';
 import { useSessions } from '../../hooks/useSessions.js';
 import { formatDate } from '../../utils/helpers.js';
@@ -214,20 +214,76 @@ function AddPatientModal({ onClose, onAdd }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Delete confirmation modal
+// ---------------------------------------------------------------------------
+function DeleteConfirmModal({ patient, onClose, onConfirm, loading }) {
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-3xl shadow-soft-lg w-full max-w-sm animate-fade-in overflow-hidden">
+        <div className="p-6">
+          <div className="w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto mb-4">
+            <AlertTriangle className="w-6 h-6 text-red-500" />
+          </div>
+          <h3 className="text-lg font-bold text-slate-900 text-center">Delete Patient?</h3>
+          <p className="text-sm text-slate-500 text-center mt-2">
+            This will permanently remove <span className="font-semibold text-slate-800">{patient.name}</span> and
+            all their sessions, SOAP notes, and recordings. This action cannot be undone.
+          </p>
+        </div>
+        <div className="flex gap-3 px-6 pb-6">
+          <Button variant="ghost" size="md" className="flex-1" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <button
+            onClick={onConfirm}
+            disabled={loading}
+            className="flex-1 px-4 py-2.5 rounded-2xl bg-red-500 hover:bg-red-600 disabled:bg-red-300 text-white text-sm font-semibold transition-colors"
+          >
+            {loading ? 'Deleting…' : 'Yes, Delete'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Patients() {
-  const { patients, loading, addPatient, updatePatient } = usePatients();
+  const { patients, loading, addPatient, updatePatient, deletePatient } = usePatients();
   const { sessions } = useSessions();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
+  const [patientToDelete, setPatientToDelete] = useState(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const itemsPerPage = 5;
 
-  const filtered = patients.filter((p) => {
-    const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.condition.toLowerCase().includes(search.toLowerCase());
-    const matchStatus = statusFilter === 'all' || p.status === statusFilter;
-    return matchSearch && matchStatus;
-  });
+  const handleDeleteConfirm = async () => {
+    if (!patientToDelete) return;
+    setDeleteLoading(true);
+    try {
+      await deletePatient(patientToDelete.id);
+      setPatientToDelete(null);
+    } catch (err) {
+      console.error('Failed to delete patient:', err);
+      alert(err.message || 'Failed to delete patient.');
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const filtered = patients
+    .filter((p) => {
+      const matchSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.condition.toLowerCase().includes(search.toLowerCase());
+      const matchStatus = statusFilter === 'all' || p.status === statusFilter;
+      return matchSearch && matchStatus;
+    })
+    // Active patients float to the top; discharged sink to the bottom
+    .sort((a, b) => {
+      if (a.status === b.status) return 0;
+      return a.status === 'active' ? -1 : 1;
+    });
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage);
   const paginated = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -306,7 +362,7 @@ export default function Patients() {
                 {paginated.map((p) => {
                   const { totalSessions, lastSession } = getPatientStats(p.id);
                   return (
-                  <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
+                  <tr key={p.id} className={`hover:bg-slate-50 transition-colors group ${p.status === 'discharged' ? 'opacity-60' : ''}`}>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-3">
                         <div className="w-9 h-9 rounded-full bg-brand-500 flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
@@ -332,11 +388,20 @@ export default function Patients() {
                       </select>
                     </td>
                     <td className="px-6 py-4">
-                      <Link to={`/dashboard/patients/${p.id}`}>
-                        <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                          View <ChevronRight className="w-4 h-4" />
-                        </Button>
-                      </Link>
+                      <div className="flex items-center justify-end gap-1">
+                        <Link to={`/dashboard/patients/${p.id}`}>
+                          <Button variant="ghost" size="sm" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            View <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </Link>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setPatientToDelete(p); }}
+                          className="p-2 rounded-xl text-slate-300 hover:text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-all"
+                          title="Delete patient"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )})}
@@ -349,17 +414,19 @@ export default function Patients() {
             {paginated.map((p) => {
               const { lastSession } = getPatientStats(p.id);
               return (
-              <Link key={p.id} to={`/dashboard/patients/${p.id}`} className="flex items-center gap-4 px-5 py-4 hover:bg-slate-50 transition-colors">
-                <div className="w-11 h-11 rounded-full bg-brand-500 flex items-center justify-center text-white font-bold flex-shrink-0">
-                  {p.name.charAt(0)}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-slate-900">{p.name}</p>
-                  <p className="text-xs text-slate-500">{p.condition} · Age {p.age}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{lastSession ? formatDate(lastSession) : 'No sessions'}</p>
-                </div>
-                <div className="flex flex-col items-end gap-1.5">
-                  <select 
+              <div key={p.id} className={`flex items-center gap-4 px-5 py-4 hover:bg-slate-50 transition-colors group relative ${p.status === 'discharged' ? 'opacity-60' : ''}`}>
+                <Link to={`/dashboard/patients/${p.id}`} className="flex items-center gap-4 flex-1 min-w-0">
+                  <div className="w-11 h-11 rounded-full bg-brand-500 flex items-center justify-center text-white font-bold flex-shrink-0">
+                    {p.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-slate-900">{p.name}</p>
+                    <p className="text-xs text-slate-500">{p.condition} · Age {p.age}</p>
+                    <p className="text-xs text-slate-400 mt-0.5">{lastSession ? formatDate(lastSession) : 'No sessions'}</p>
+                  </div>
+                </Link>
+                <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  <select
                     className={`text-[10px] font-medium px-2 py-0.5 rounded-full border outline-none cursor-pointer ${p.status === 'active' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}
                     value={p.status}
                     onClick={(e) => { e.stopPropagation(); e.preventDefault(); }}
@@ -368,9 +435,15 @@ export default function Patients() {
                     <option value="active">Active</option>
                     <option value="discharged">Discharged</option>
                   </select>
-                  <ChevronRight className="w-4 h-4 text-slate-400" />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setPatientToDelete(p); }}
+                    className="p-1.5 rounded-lg text-slate-300 hover:text-red-500 hover:bg-red-50 transition-all"
+                    title="Delete patient"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              </Link>
+              </div>
             )})}
           </div>
 
@@ -407,6 +480,14 @@ export default function Patients() {
         <AddPatientModal
           onClose={() => setShowModal(false)}
           onAdd={addPatient}
+        />
+      )}
+      {patientToDelete && (
+        <DeleteConfirmModal
+          patient={patientToDelete}
+          onClose={() => setPatientToDelete(null)}
+          onConfirm={handleDeleteConfirm}
+          loading={deleteLoading}
         />
       )}
     </div>

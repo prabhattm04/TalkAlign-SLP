@@ -31,9 +31,8 @@ const envSchema = z.object({
   AZURE_OPENAI_DEPLOYMENT: z.string().default("gpt-4o"),
   AZURE_OPENAI_API_VERSION: z.string().default("2024-05-01-preview"),
 
-  // Azure Speech — required for Transcription
-  AZURE_SPEECH_KEY: z.string().optional(),
-  AZURE_SPEECH_REGION: z.string().optional(),
+  // Sarvam AI — for Indian language speech-to-text (Saaras v3, Hinglish/codemix)
+  SARVAM_API_KEY: z.string().optional(),
 });
 
 // ---------------------------------------------------------------------------

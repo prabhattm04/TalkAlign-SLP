@@ -162,8 +162,9 @@ export default function Sessions() {
                   <Mic2 className="w-5 h-5 text-brand-600" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-semibold text-slate-900">{patientName}</p>
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <p className="font-semibold text-slate-900">{s.title || patientName}</p>
+                    {s.title && <span className="text-sm font-semibold text-slate-500 hidden sm:inline">· {patientName}</span>}
                     <Badge status={s.status}>{s.status}</Badge>
                   </div>
                   <p className="text-xs text-slate-500 truncate mt-0.5">{s.summary}</p>

@@ -38,6 +38,10 @@ export const getSessions = async () => {
   return fetchWithAuth('/portal/sessions');
 };
 
+export const getGoals = async () => {
+  return fetchWithAuth('/portal/goals');
+};
+
 export const completeTask = async (taskId, completed) => {
   return fetchWithAuth(`/portal/tasks/${taskId}/complete`, {
     method: 'PATCH',

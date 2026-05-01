@@ -9,6 +9,7 @@ export const createSessionSchema = z.object({
 
 export const saveSoapSchema = z.object({
   soap: z.object({
+    title: z.string().optional(),
     subjective: z.string().optional(),
     objective: z.string().optional(),
     assessment: z.string().optional(),

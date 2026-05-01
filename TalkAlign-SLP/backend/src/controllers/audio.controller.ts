@@ -120,6 +120,7 @@ async function runAIPipeline(
     const { error } = await admin
       .from("sessions")
       .update({
+        title: soap.title,
         transcript,
         soap_subjective: soap.subjective,
         soap_objective: soap.objective,

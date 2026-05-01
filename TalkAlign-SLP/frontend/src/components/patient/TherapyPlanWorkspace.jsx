@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Target, Plus, Sparkles, CheckCircle2, Circle, PlayCircle, MoreHorizontal, Trash2, Edit3, X } from 'lucide-react';
+import { Target, Plus, Sparkles, CheckCircle2, Circle, PlayCircle, MoreHorizontal, Trash2, Edit3, X, Calendar, Activity } from 'lucide-react';
 import { useGoals } from '../../hooks/useGoals.js';
 import Button from '../ui/Button.jsx';
 import Input from '../ui/Input.jsx';
@@ -181,9 +181,18 @@ function AutoSuggestModal({ onClose, onSuggest, onSaveMultiple }) {
 // -----------------------------------------------------------------------------
 // Workspace
 // -----------------------------------------------------------------------------
-export default function TherapyPlanWorkspace({ patientId }) {
+export default function TherapyPlanWorkspace({ patientId, sessions = [] }) {
   const { goals, loading, addGoal, editGoal, removeGoal, suggestGoals } = useGoals(patientId);
   const [expandedGoalId, setExpandedGoalId] = useState(null);
+  
+  // Extract all session tasks
+  const allTasks = sessions
+    .filter(s => s.homePractice && s.homePractice.length > 0)
+    .flatMap(s => s.homePractice.map(t => ({
+      ...t,
+      sessionDate: s.date,
+      sessionId: s.id
+    })));
   
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
@@ -281,6 +290,9 @@ export default function TherapyPlanWorkspace({ patientId }) {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-3 mb-1">
                       <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{goal.type?.replace('_', '-')}</span>
+                      <span className="text-[10px] font-medium text-slate-400 flex items-center gap-1">
+                        <Calendar className="w-3 h-3" /> {new Date(goal.created_at).toLocaleDateString()}
+                      </span>
                       <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${getStatusColor(goal.status)}`}>
                         {getStatusText(goal.status)}
                       </span>
@@ -308,8 +320,33 @@ export default function TherapyPlanWorkspace({ patientId }) {
         )}
       </div>
 
+      {/* Session Tasks List */}
+      {allTasks.length > 0 && (
+        <div className="mt-10 space-y-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Activity className="w-5 h-5 text-orange-500" />
+            <h3 className="text-lg font-bold text-slate-800">Session Home Practice Tasks</h3>
+          </div>
+          {allTasks.map(task => (
+            <div key={task.id} className="bg-white rounded-2xl border border-slate-200 shadow-sm p-4 flex items-center gap-4 hover:border-orange-200 transition-colors">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${task.completed ? 'bg-emerald-500' : 'border-2 border-slate-300'}`}>
+                {task.completed && <CheckCircle2 className="w-5 h-5 text-white" />}
+              </div>
+              <div className="flex-1">
+                <p className={`font-medium ${task.completed ? 'text-slate-500 line-through' : 'text-slate-800'}`}>{task.title}</p>
+                <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
+                  <span className="flex items-center gap-1"><Calendar className="w-3 h-3" /> Assigned: {new Date(task.sessionDate).toLocaleDateString()}</span>
+                  <span className="hidden sm:inline">•</span>
+                  <span className="text-slate-300 font-mono">Session ID: {task.sessionId.split('-')[0]}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Centralized Action Buttons */}
-      <div className="flex justify-center gap-3 pt-4">
+      <div className="flex justify-center gap-3 pt-6 border-t border-slate-100">
         <Button variant="secondary" onClick={() => setShowSuggestModal(true)}>
           <Sparkles className="w-4 h-4 text-purple-500 mr-2 inline" /> Auto-Suggest Goals
         </Button>

@@ -87,17 +87,59 @@ export async function deletePatient(req: Request, res: Response): Promise<void> 
   const supabase = req.supabase!;
   const { id } = req.params;
 
-  const { data, error } = await supabase
+  // Ownership check — if this patient doesn't belong to the requesting doctor,
+  // the SELECT returns nothing (RLS: doctor_id = auth.uid()) and we return 404.
+  const { data: patient, error: findError } = await supabase
     .from("patients")
-    .update({ status: "discharged" })
+    .select("id, name")
     .eq("id", id)
-    .select()
     .single();
+
+  if (findError || !patient) {
+    res.status(404).json(sendError("Patient not found or access denied"));
+    return;
+  }
+
+  // Collect session IDs so we can cascade-delete child records first.
+  const { data: sessionRows } = await supabase
+    .from("sessions")
+    .select("id")
+    .eq("patient_id", id);
+
+  if (sessionRows && sessionRows.length > 0) {
+    const sessionIds = sessionRows.map((s) => s.id);
+
+    const { error: tasksError } = await supabase
+      .from("home_practice_tasks")
+      .delete()
+      .in("session_id", sessionIds);
+
+    if (tasksError) {
+      res.status(500).json(sendError("Failed to delete practice tasks: " + tasksError.message));
+      return;
+    }
+  }
+
+  const { error: sessionsError } = await supabase
+    .from("sessions")
+    .delete()
+    .eq("patient_id", id);
+
+  if (sessionsError) {
+    res.status(500).json(sendError("Failed to delete sessions: " + sessionsError.message));
+    return;
+  }
+
+  // Hard-delete the patient row (RLS DELETE policy: doctor_id = auth.uid())
+  const { error } = await supabase
+    .from("patients")
+    .delete()
+    .eq("id", id);
 
   if (error) {
     res.status(500).json(sendError(error.message));
     return;
   }
 
-  res.status(200).json(sendSuccess(data));
+  res.status(200).json(sendSuccess({ message: `Patient "${patient.name}" permanently deleted` }));
 }
