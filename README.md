@@ -1,6 +1,6 @@
 # TalkAlign - AI-Powered Speech-Language Pathology Platform
 
-TalkAlign is a modern, full-stack web application designed for Speech-Language Pathologists (SLPs) and caregivers. It streamlines the therapy process by integrating an AI-powered pipeline to transcribe sessions, generate SOAP notes, and suggest therapy goals, while providing a dedicated caregiver portal for tracking progress and managing home practice.
+“TalkAlign is a modern, full-stack web application designed for Speech-Language Pathologists (SLPs) and caregivers. It simplifies the therapy process by integrating an AI-powered pipeline to transcribe sessions, generate SOAP notes, and recommend therapy goals, while providing a dedicated caregiver portal for tracking progress and managing home practice.”
 
 ## ✨ Features
 
